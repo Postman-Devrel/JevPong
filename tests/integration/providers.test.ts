@@ -112,6 +112,26 @@ describe("official Jev adapter", () => {
     expect(body.questions.use_boost.type).toBe("noul");
   });
 
+  it("sends only the Gateway credential to a configured gateway", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(officialResponseFixture));
+    const provider = new JevProvider({
+      apiKey: "typesafe-key",
+      baseURL: "https://gateway.example/",
+      gatewayApiKey: "gateway-key",
+      model: "jev-latest",
+      timeoutMs: 900,
+      fetcher,
+    });
+    await provider.decide(baseState, { requestId: "request-1" });
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe("https://gateway.example/v1/systemone");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("X-Gateway-key")).toBe("gateway-key");
+    expect(headers.has("Authorization")).toBe(false);
+  });
+
   it("pins the official host and disables SDK logging even when environment overrides exist", async () => {
     vi.stubEnv("TYPESAFE_BASE_URL", "https://untrusted.example");
     vi.stubEnv("TYPESAFE_LOG_LEVEL", "debug");

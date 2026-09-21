@@ -1,0 +1,162 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TypeSafe Jev API - Gateway Import",
+    "version": "1.0",
+    "description": "Component-free gateway contract for the TypeSafe Jev evaluation endpoint. Requests require the Fabric API key in X-Gateway-key; Fabric handles upstream TypeSafe authentication."
+  },
+  "externalDocs": {
+    "description": "Official TypeSafe API reference",
+    "url": "https://docs.typesafe.ai/api"
+  },
+  "servers": [
+    {
+      "url": "https://api.typesafe.ai",
+      "description": "TypeSafe production API"
+    }
+  ],
+  "security": [
+    {
+      "gatewayKey": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Evaluation",
+      "description": "Evaluate structured state against typed questions with Jev."
+    }
+  ],
+  "paths": {
+    "/v1/systemone": {
+      "post": {
+        "tags": ["Evaluation"],
+        "operationId": "evaluateState",
+        "summary": "Evaluate a state with Jev",
+        "description": "Evaluates a string, object, or array against caller-named Noul, Choice, or Score questions. This gateway-compatible schema leaves dynamic state, question, and answer values open because their exact JSON shapes depend on the selected question types.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["state", "model", "questions"],
+                "properties": {
+                  "state": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Structured content to evaluate. This gateway import constrains state to the object form used by Jev Pong; the upstream API also accepts strings and arrays."
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "example": "jev-latest",
+                    "description": "Jev model name or alias."
+                  },
+                  "questions": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "object"
+                    },
+                    "description": "Map of caller-chosen question IDs to Noul, Choice, or Score question objects. Each question contains type and instructions; Choice and Score require criteria, while Noul criteria is optional."
+                  }
+                }
+              },
+              "example": {
+                "state": {
+                  "message": "Help! My payouts have been failing for 3 days."
+                },
+                "model": "jev-latest",
+                "questions": {
+                  "is_urgent": {
+                    "type": "noul",
+                    "instructions": "Does this convey urgency?",
+                    "criteria": {
+                      "true": "Explicitly time-sensitive",
+                      "false": "No urgency expressed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Evaluation completed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["model", "answers", "usage"],
+                  "properties": {
+                    "model": {
+                      "type": "string",
+                      "description": "Model version that performed the evaluation."
+                    },
+                    "answers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object"
+                      },
+                      "description": "Typed answers keyed by the submitted question IDs."
+                    },
+                    "usage": {
+                      "type": "object",
+                      "required": ["input_tokens", "output_tokens"],
+                      "properties": {
+                        "input_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "output_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "model": "jev-1.13.0",
+                  "answers": {
+                    "is_urgent": {
+                      "type": "noul",
+                      "noul": 0.95
+                    }
+                  },
+                  "usage": {
+                    "input_tokens": 296,
+                    "output_tokens": 20
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is missing or invalid."
+          },
+          "422": {
+            "description": "The request body failed validation."
+          },
+          "429": {
+            "description": "The caller exceeded a rate limit and should retry with backoff."
+          },
+          "529": {
+            "description": "TypeSafe is temporarily overloaded and the caller should retry with backoff."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "gatewayKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Gateway-key",
+        "description": "Fabric Gateway API key required on Gateway requests."
+      }
+    }
+  }
+}

@@ -16,6 +16,7 @@ import {
   type ProviderContext,
   type ProviderResult,
 } from "./provider";
+import { TYPESAFE_API_BASE_URL } from "./config";
 
 export const TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 
@@ -136,15 +137,23 @@ export function normalizeJevResponse(
 
 export interface JevProviderOptions {
   apiKey: string;
+  baseURL?: string;
+  gatewayApiKey?: string;
   model: string;
   timeoutMs: number;
   fetcher?: typeof fetch;
 }
 
-/** Limit successful response bodies and discard upstream error details before SDK parsing. */
-function boundedTransport(fetcher: typeof fetch) {
+/** Limit response bodies, discard upstream error details, and enforce the selected auth boundary. */
+function boundedTransport(fetcher: typeof fetch, gatewayManagedAuth: boolean) {
   return async (url: string, init?: RequestInit): Promise<Response> => {
-    const response = await fetcher(url, { ...init, cache: "no-store" });
+    const requestInit: RequestInit = { ...init, cache: "no-store" };
+    if (gatewayManagedAuth) {
+      const headers = new Headers(init?.headers);
+      headers.delete("Authorization");
+      requestInit.headers = headers;
+    }
+    const response = await fetcher(url, requestInit);
     const headers = new Headers({ "Content-Type": "application/json" });
     for (const name of ["retry-after", "retry-after-ms"]) {
       const value = response.headers.get(name);
@@ -208,19 +217,30 @@ export class JevProvider implements AgentProvider {
     state: AgentGameState,
     context: ProviderContext,
   ): Promise<ProviderResult> {
-    if (!this.options.apiKey)
+    const gatewayManagedAuth = Boolean(this.options.gatewayApiKey);
+    if (!this.options.apiKey && !gatewayManagedAuth)
       throw new ProviderError("missing_credentials", undefined, true);
     const started = performance.now();
     try {
       const client = new TypeSafeClient({
-        apiKey: this.options.apiKey,
-        // Explicitly use the official host, unaffected by SDK environment overrides.
-        baseURL: "https://api.typesafe.ai",
+        // The SDK requires a value and always creates Authorization. Gateway
+        // transport removes that header before dispatch, so no upstream key is sent.
+        apiKey: gatewayManagedAuth
+          ? "gateway-managed-auth"
+          : this.options.apiKey,
+        // Always explicit so SDK environment overrides cannot redirect credentials.
+        baseURL: this.options.baseURL ?? TYPESAFE_API_BASE_URL,
+        defaultHeaders: this.options.gatewayApiKey
+          ? { "X-Gateway-key": this.options.gatewayApiKey }
+          : undefined,
         defaultModel: this.options.model,
         timeout: this.options.timeoutMs,
         retry: { maxRetries: 0 },
         logLevel: "off",
-        fetch: boundedTransport(this.options.fetcher ?? fetch),
+        fetch: boundedTransport(
+          this.options.fetcher ?? fetch,
+          gatewayManagedAuth,
+        ),
       });
       const raw = await client.systemOne(
         { model: this.options.model, state, questions: JEV_QUESTIONS },

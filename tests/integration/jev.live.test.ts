@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JevProvider } from "../../lib/agent/providers/jev";
+import { getServerConfig } from "../../lib/agent/providers/config";
 import type { AgentGameState } from "../../lib/agent/contracts";
 import { baseState, decisionFixtures } from "../fixtures/agent-states";
 
@@ -15,13 +16,16 @@ describe.skipIf(process.env.JEV_LIVE_TEST !== "1")(
     it.each(liveCases)(
       "evaluates the %s snapshot with the official provider",
       async (name, snapshot) => {
+        const config = getServerConfig();
         expect(
-          Boolean(process.env.TYPESAFE_API_KEY),
-          "Set TYPESAFE_API_KEY in the shell to opt into the live test.",
+          config.configured,
+          "Configure either direct TypeSafe credentials or a paired Jev Gateway URL and key.",
         ).toBe(true);
         const provider = new JevProvider({
-          apiKey: process.env.TYPESAFE_API_KEY!,
-          model: process.env.JEV_MODEL ?? "jev-latest",
+          apiKey: config.apiKey,
+          baseURL: config.apiBaseURL,
+          gatewayApiKey: config.gatewayApiKey,
+          model: config.model,
           timeoutMs: 5_000,
         });
         const result = await provider.decide(snapshot, {

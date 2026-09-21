@@ -3,9 +3,34 @@ import { DEFAULT_PRICING } from "../cost";
 
 export interface ServerAgentConfig extends AgentPublicConfig {
   apiKey: string;
+  apiBaseURL: string;
+  gatewayApiKey: string;
   mockLatencyMs: number;
   mockSeed: number;
   configurationError?: boolean;
+}
+
+export const TYPESAFE_API_BASE_URL = "https://api.typesafe.ai";
+
+function normalizeApiBaseURL(value: string | undefined): string | null {
+  if (value === undefined || value.trim() === "") return TYPESAFE_API_BASE_URL;
+  try {
+    const url = new URL(value.trim());
+    if (
+      url.protocol !== "https:" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== ""
+    )
+      return null;
+    const path = url.pathname.replace(/\/+$/, "");
+    // The SDK appends /v1/systemone; accepting the full endpoint would double it.
+    if (path.endsWith("/v1/systemone")) return null;
+    return `${url.origin}${path}`;
+  } catch {
+    return null;
+  }
 }
 
 function boundedNumber(
@@ -30,16 +55,30 @@ export function getServerConfig(
   const selectedModel = env.JEV_MODEL?.trim() || "jev-latest";
   const validModel = /^jev-[a-zA-Z0-9.-]{1,70}$/.test(selectedModel);
   const model = validModel ? selectedModel : "jev-latest";
+  const selectedBaseURL = env.JEV_API_BASE_URL?.trim() ?? "";
+  const customBaseURL = selectedBaseURL.length > 0;
+  const apiBaseURL = normalizeApiBaseURL(selectedBaseURL);
+  const gatewayApiKey = env.FABRIC_GATEWAY_API_KEY?.trim() ?? "";
+  const typeSafeApiKey = env.TYPESAFE_API_KEY?.trim() ?? "";
+  const gatewayConfigurationMismatch =
+    customBaseURL !== gatewayApiKey.length > 0;
   const configurationError =
-    (selectedProvider !== "mock" && selectedProvider !== "jev") || !validModel;
-  const apiKey = env.TYPESAFE_API_KEY?.trim() ?? "";
+    (selectedProvider !== "mock" && selectedProvider !== "jev") ||
+    !validModel ||
+    apiBaseURL === null ||
+    gatewayConfigurationMismatch;
+  const apiKey = typeSafeApiKey;
   return {
     provider,
     model,
     apiKey,
+    apiBaseURL: apiBaseURL ?? TYPESAFE_API_BASE_URL,
+    gatewayApiKey,
     configurationError,
     configured:
-      !configurationError && (provider === "mock" || apiKey.length > 0),
+      !configurationError &&
+      (provider === "mock" ||
+        (customBaseURL ? gatewayApiKey.length > 0 : apiKey.length > 0)),
     decisionIntervalMs: Math.round(
       boundedNumber(env.JEV_DECISION_INTERVAL_MS, 250, 150, 2_000),
     ),

@@ -33,7 +33,25 @@ JEV_PROVIDER=jev
 JEV_MODEL=jev-latest
 ```
 
-Keep the key server-only. Do not use a `NEXT_PUBLIC_` prefix. The browser calls the application's `/api/agent/decide` route; only that server route calls the official `https://api.typesafe.ai/v1/systemone` endpoint. No proxy provider is involved. Set `JEV_PROVIDER=mock` and restart to return to mock mode.
+Keep the key server-only. Do not use a `NEXT_PUBLIC_` prefix. The browser calls
+the application's `/api/agent/decide` route; in direct mode, only that server
+route calls the official `https://api.typesafe.ai/v1/systemone` endpoint.
+
+To route requests through a Gateway instead, set the Gateway origin and its
+`X-Gateway-key` credential as a pair:
+
+```dotenv
+JEV_API_BASE_URL=https://your-gateway.example
+FABRIC_GATEWAY_API_KEY=your_private_gateway_key
+JEV_PROVIDER=jev
+JEV_MODEL=jev-latest
+```
+
+The SDK appends `/v1/systemone`, so `JEV_API_BASE_URL` must not contain that
+endpoint suffix. In Gateway mode, the application sends only
+`FABRIC_GATEWAY_API_KEY` in the `X-Gateway-key` header; it does not send
+`TYPESAFE_API_KEY` or an `Authorization` header because Fabric handles upstream
+authentication. Set `JEV_PROVIDER=mock` and restart to return to mock mode.
 
 An explicitly selected Jev provider with missing or invalid credentials displays **fallback**. It never silently becomes a mock labelled as Jev. Authentication and configuration errors suspend continuous retries; correct the server configuration and reload the page.
 
@@ -41,7 +59,9 @@ An explicitly selected Jev provider with missing or invalid credentials displays
 
 | Variable                           | Default      | Purpose                                                                |
 | ---------------------------------- | ------------ | ---------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY`                 | Empty        | Server-only TypeSafe credential                                        |
+| `TYPESAFE_API_KEY`                 | Empty        | Server-only credential used only for direct TypeSafe requests          |
+| `FABRIC_GATEWAY_API_KEY`           | Empty        | Server-only `X-Gateway-key` credential                                 |
+| `JEV_API_BASE_URL`                 | Official API | Gateway origin; requires `FABRIC_GATEWAY_API_KEY`                      |
 | `JEV_PROVIDER`                     | `mock`       | `mock` or `jev`; live mode requires an explicit selection              |
 | `JEV_MODEL`                        | `jev-latest` | Requested model; can be pinned to a supported version after evaluation |
 | `JEV_DECISION_INTERVAL_MS`         | `250`        | Target sampling interval, not a promised measured decision rate        |
@@ -85,7 +105,7 @@ Approaching-ball decisions use the configured 250 ms cadence; travel away uses a
 
 The deterministic playability benchmark runs the actual mock provider and controller with simulated 80, 240, and 500 ms response delays. A predictor-driven human varies center and edge placement; a second profile deliberately includes imperfect placement. All five profiles finish first-to-seven: precise play produces human wins in roughly 2.5–6 minutes, while imperfect play finishes in roughly two minutes with about 5–6 hits per rally. These synthetic checks verify pacing, bounded request rates, and match completion; they are not user research or evidence of live Jev performance. Run `npm test -- tests/unit/playability.test.ts --disableConsoleIntercept` to print the measured results.
 
-The official integration uses `@typesafe-ai/sdk` with the fixed official API host, a bounded timeout, an abort signal, `retry.maxRetries: 0`, and SDK logging disabled. The SDK exposes Choice probabilities/confidence, Noul probability, returned model, and actual token usage; the adapter validates those fields before passing them to the application. Its transport caps successful responses at 64 KiB and discards upstream error details. The next fresh game snapshot is more useful than retrying an expired action, so rate-limit delays are handled between snapshots and respect `Retry-After` (including its millisecond variant).
+The official integration uses `@typesafe-ai/sdk` with an explicitly validated API base URL, a bounded timeout, an abort signal, `retry.maxRetries: 0`, and SDK logging disabled. The base URL defaults to the official TypeSafe host and can be replaced by a paired Gateway URL and credential. The SDK exposes Choice probabilities/confidence, Noul probability, returned model, and actual token usage; the adapter validates those fields before passing them to the application. Its transport caps successful responses at 64 KiB and discards upstream error details. The next fresh game snapshot is more useful than retrying an expired action, so rate-limit delays are handled between snapshots and respect `Retry-After` (including its millisecond variant).
 
 Important modules:
 

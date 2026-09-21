@@ -1,0 +1,541 @@
+openapi: 3.0.3
+info:
+  title: Jev Pong Agent API
+  version: 1.0.0
+  description: |
+    Public server API exposed by the Jev Pong Next.js application. This is an
+    application façade, not the general-purpose TypeSafe Jev API.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Agent
+paths:
+  /api/agent/config:
+    get:
+      tags:
+        - Agent
+      operationId: getAgentConfig
+      summary: Get the public agent configuration
+      responses:
+        "200":
+          description: Safe public configuration. Credentials are never included.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentPublicConfig"
+  /api/agent/decide:
+    post:
+      tags:
+        - Agent
+      operationId: decideAgentAction
+      summary: Choose the agent's next Pong action
+      description: |
+        Validates a bounded game snapshot and returns either a provider decision
+        or an explicitly labelled deterministic fallback. Provider failures,
+        configuration failures, and rate limits return a playable response with
+        HTTP 200; inspect `decision.source`, `decision.fallbackReason`,
+        `retryAfterMs`, and `disabled`.
+      parameters:
+        - name: Origin
+          in: header
+          required: false
+          description: When present, must match the public request origin.
+          schema:
+            type: string
+            format: uri
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentDecisionRequest"
+      responses:
+        "200":
+          description: Provider decision or playable fallback decision.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+            Retry-After:
+              description: Whole seconds to wait when `retryAfterMs` is present.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDecisionResponse"
+        "400":
+          description: Invalid request body or unavailable mock scenario.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestError"
+        "403":
+          description: The supplied origin is not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestError"
+              example:
+                error: forbidden_origin
+        "413":
+          description: The JSON request exceeds 12,288 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestError"
+              example:
+                error: payload_too_large
+        "415":
+          description: Content-Type is not application/json.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestError"
+              example:
+                error: unsupported_media_type
+components:
+  schemas:
+    AgentPublicConfig:
+      type: object
+      required:
+        - provider
+        - model
+        - configured
+        - decisionIntervalMs
+        - requestTimeoutMs
+        - pricing
+        - mockScenariosEnabled
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+          enum:
+            - jev
+            - mock
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: ^jev-[a-zA-Z0-9.-]+$
+        configured:
+          type: boolean
+        decisionIntervalMs:
+          type: integer
+          minimum: 150
+          maximum: 2000
+        requestTimeoutMs:
+          type: integer
+          minimum: 100
+          maximum: 5000
+        pricing:
+          $ref: "#/components/schemas/Pricing"
+        mockScenariosEnabled:
+          type: boolean
+    Pricing:
+      type: object
+      required:
+        - inputPerMillionUsd
+        - outputPerMillionUsd
+      additionalProperties: false
+      properties:
+        inputPerMillionUsd:
+          type: number
+          minimum: 0
+          maximum: 1000
+        outputPerMillionUsd:
+          type: number
+          minimum: 0
+          maximum: 1000
+    AgentDecisionRequest:
+      type: object
+      required:
+        - state
+      additionalProperties: false
+      properties:
+        state:
+          $ref: "#/components/schemas/AgentGameState"
+        scenario:
+          type: string
+          enum:
+            - normal
+            - timeout
+            - rate_limit
+            - provider_error
+            - low_confidence
+            - invalid_response
+          description: Mock-only failure simulation; live Jev mode accepts only `normal` or omission.
+    AgentGameState:
+      type: object
+      required:
+        - sequence
+        - capturedAtMs
+        - matchId
+        - roundId
+        - directionVersion
+        - arena
+        - ball
+        - agentPaddle
+        - humanPaddle
+        - prediction
+        - match
+        - agent
+      additionalProperties: false
+      properties:
+        sequence:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        capturedAtMs:
+          type: number
+          minimum: 0
+        matchId:
+          $ref: "#/components/schemas/Identifier"
+        roundId:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        directionVersion:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        arena:
+          $ref: "#/components/schemas/Arena"
+        ball:
+          $ref: "#/components/schemas/Ball"
+        agentPaddle:
+          $ref: "#/components/schemas/AgentPaddle"
+        humanPaddle:
+          $ref: "#/components/schemas/HumanPaddle"
+        prediction:
+          $ref: "#/components/schemas/Prediction"
+        match:
+          $ref: "#/components/schemas/MatchState"
+        agent:
+          $ref: "#/components/schemas/AgentState"
+    Arena:
+      type: object
+      required:
+        - width
+        - height
+      additionalProperties: false
+      properties:
+        width:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+        height:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+    Ball:
+      type: object
+      required:
+        - x
+        - y
+        - velocityX
+        - velocityY
+        - speed
+        - movingTowardAgent
+      additionalProperties: false
+      properties:
+        x:
+          $ref: "#/components/schemas/Coordinate"
+        y:
+          $ref: "#/components/schemas/Coordinate"
+        velocityX:
+          $ref: "#/components/schemas/Velocity"
+        velocityY:
+          $ref: "#/components/schemas/Velocity"
+        speed:
+          type: number
+          minimum: 0
+          maximum: 20000
+        movingTowardAgent:
+          type: boolean
+    AgentPaddle:
+      type: object
+      required:
+        - centerY
+        - velocityY
+        - height
+        - boostReady
+      additionalProperties: false
+      properties:
+        centerY:
+          $ref: "#/components/schemas/Coordinate"
+        velocityY:
+          $ref: "#/components/schemas/Velocity"
+        height:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+        boostReady:
+          type: boolean
+    HumanPaddle:
+      type: object
+      required:
+        - centerY
+        - velocityY
+      additionalProperties: false
+      properties:
+        centerY:
+          $ref: "#/components/schemas/Coordinate"
+        velocityY:
+          $ref: "#/components/schemas/Velocity"
+    Prediction:
+      type: object
+      required:
+        - interceptY
+        - timeToImpactMs
+        - uncertaintyPx
+      additionalProperties: false
+      properties:
+        interceptY:
+          type: number
+          minimum: -20000
+          maximum: 20000
+          nullable: true
+        timeToImpactMs:
+          type: number
+          minimum: 0
+          maximum: 1000000
+          nullable: true
+        uncertaintyPx:
+          type: number
+          minimum: 0
+          maximum: 20000
+    MatchState:
+      type: object
+      required:
+        - humanScore
+        - agentScore
+        - rallyLength
+      additionalProperties: false
+      properties:
+        humanScore:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        agentScore:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        rallyLength:
+          $ref: "#/components/schemas/NonnegativeInteger"
+    AgentState:
+      type: object
+      required:
+        - strategy
+        - previousMovement
+        - previousReturnStyle
+        - smoothedLatencyMs
+      additionalProperties: false
+      properties:
+        strategy:
+          type: string
+          enum:
+            - balanced
+            - aggressive
+            - defensive
+        previousMovement:
+          $ref: "#/components/schemas/Movement"
+        previousReturnStyle:
+          $ref: "#/components/schemas/ReturnStyle"
+        smoothedLatencyMs:
+          type: number
+          minimum: 0
+          maximum: 1000000
+          nullable: true
+    AgentDecisionResponse:
+      type: object
+      required:
+        - decision
+        - rawResponse
+      properties:
+        decision:
+          $ref: "#/components/schemas/AgentDecision"
+        rawResponse:
+          description: Sanitized provider response or fallback error metadata.
+        retryAfterMs:
+          type: integer
+          minimum: 0
+        disabled:
+          type: boolean
+    AgentDecision:
+      type: object
+      required:
+        - sequence
+        - matchId
+        - roundId
+        - directionVersion
+        - requestId
+        - movement
+        - movementProbabilities
+        - movementConfidence
+        - returnStyle
+        - returnStyleProbabilities
+        - returnStyleConfidence
+        - useBoostProbability
+        - model
+        - usage
+        - timing
+        - source
+      properties:
+        sequence:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        matchId:
+          type: string
+        roundId:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        directionVersion:
+          $ref: "#/components/schemas/NonnegativeInteger"
+        requestId:
+          type: string
+          format: uuid
+        movement:
+          $ref: "#/components/schemas/Movement"
+        movementProbabilities:
+          $ref: "#/components/schemas/MovementProbabilities"
+        movementConfidence:
+          $ref: "#/components/schemas/Probability"
+        returnStyle:
+          $ref: "#/components/schemas/ReturnStyle"
+        returnStyleProbabilities:
+          $ref: "#/components/schemas/ReturnStyleProbabilities"
+        returnStyleConfidence:
+          $ref: "#/components/schemas/Probability"
+        useBoostProbability:
+          $ref: "#/components/schemas/Probability"
+        model:
+          type: string
+        usage:
+          $ref: "#/components/schemas/DecisionUsage"
+        timing:
+          $ref: "#/components/schemas/DecisionTiming"
+        source:
+          type: string
+          enum:
+            - jev
+            - mock
+            - fallback
+        fallbackReason:
+          type: string
+          enum:
+            - low_confidence
+            - timeout
+            - rate_limit
+            - provider_error
+            - invalid_response
+            - missing_credentials
+            - authentication
+            - configuration
+            - offline
+    MovementProbabilities:
+      type: object
+      required:
+        - UP
+        - DOWN
+        - HOLD
+      additionalProperties: false
+      properties:
+        UP:
+          $ref: "#/components/schemas/Probability"
+        DOWN:
+          $ref: "#/components/schemas/Probability"
+        HOLD:
+          $ref: "#/components/schemas/Probability"
+    ReturnStyleProbabilities:
+      type: object
+      required:
+        - SAFE
+        - ANGLED
+        - FAST
+      additionalProperties: false
+      properties:
+        SAFE:
+          $ref: "#/components/schemas/Probability"
+        ANGLED:
+          $ref: "#/components/schemas/Probability"
+        FAST:
+          $ref: "#/components/schemas/Probability"
+    DecisionUsage:
+      type: object
+      required:
+        - inputTokens
+        - outputTokens
+      properties:
+        inputTokens:
+          type: integer
+          minimum: 0
+        outputTokens:
+          type: integer
+          minimum: 0
+        billable:
+          type: boolean
+    DecisionTiming:
+      type: object
+      required:
+        - serverMs
+        - providerMs
+        - roundTripMs
+      properties:
+        serverMs:
+          type: number
+          minimum: 0
+        providerMs:
+          type: number
+          minimum: 0
+          nullable: true
+        roundTripMs:
+          type: number
+          minimum: 0
+          nullable: true
+    RequestError:
+      type: object
+      required:
+        - error
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          enum:
+            - forbidden_origin
+            - unsupported_media_type
+            - payload_too_large
+            - invalid_request
+            - scenario_unavailable
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 80
+      pattern: ^[a-zA-Z0-9_-]+$
+    NonnegativeInteger:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
+    Coordinate:
+      type: number
+      minimum: -20000
+      maximum: 20000
+    Velocity:
+      type: number
+      minimum: -20000
+      maximum: 20000
+    Probability:
+      type: number
+      minimum: 0
+      maximum: 1
+    Movement:
+      type: string
+      enum:
+        - UP
+        - DOWN
+        - HOLD
+    ReturnStyle:
+      type: string
+      enum:
+        - SAFE
+        - ANGLED
+        - FAST

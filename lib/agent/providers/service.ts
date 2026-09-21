@@ -234,7 +234,9 @@ export function createDecisionHandler(options: DecisionServiceOptions = {}) {
       );
 
     const fingerprint = createHash("sha256")
-      .update(`${config.provider}\0${config.model}\0${config.apiKey}`)
+      .update(
+        `${config.provider}\0${config.model}\0${config.apiBaseURL}\0${config.apiKey}\0${config.gatewayApiKey}`,
+      )
       .digest("hex");
     if (service.fingerprint !== fingerprint) {
       service.fingerprint = fingerprint;
@@ -268,6 +270,8 @@ export function createDecisionHandler(options: DecisionServiceOptions = {}) {
         config.provider === "jev"
           ? new JevProvider({
               apiKey: config.apiKey,
+              baseURL: config.apiBaseURL,
+              gatewayApiKey: config.gatewayApiKey,
               model: config.model,
               timeoutMs: config.requestTimeoutMs,
               fetcher: options.fetcher,

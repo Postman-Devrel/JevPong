@@ -14,7 +14,7 @@ export function redactSecrets(
       .slice(0, 16_384)
       .replace(/Bearer\s+[a-zA-Z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
       .replace(
-        /(?:TYPESAFE_API_KEY|JEV_API_KEY)\s*[=:]\s*[^\s,;"']+/gi,
+        /(?:TYPESAFE_API_KEY|JEV_API_KEY|FABRIC_GATEWAY_API_KEY)\s*[=:]\s*[^\s,;"']+/gi,
         "[REDACTED]",
       )
       .replace(/\b(?:sk|ts)_[a-zA-Z0-9_-]{16,}\b/g, "[REDACTED]")

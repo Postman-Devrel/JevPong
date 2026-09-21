@@ -294,6 +294,43 @@ describe("decision API service", () => {
     expect(agentPublicConfigSchema.safeParse(config).success).toBe(true);
   });
 
+  it("selects a paired gateway origin and credential without exposing either publicly", () => {
+    const config = getServerConfig({
+      JEV_PROVIDER: "jev",
+      JEV_API_BASE_URL: "https://gateway.example/",
+      FABRIC_GATEWAY_API_KEY: "gateway-secret",
+    });
+    expect(config).toMatchObject({
+      apiBaseURL: "https://gateway.example",
+      apiKey: "",
+      gatewayApiKey: "gateway-secret",
+      configured: true,
+    });
+    const serialized = JSON.stringify(publicConfig(config));
+    expect(serialized).not.toContain("gateway.example");
+    expect(serialized).not.toContain("gateway-secret");
+  });
+
+  it.each([
+    {
+      JEV_API_BASE_URL: "https://gateway.example",
+      TYPESAFE_API_KEY: "must-not-be-forwarded",
+    },
+    { FABRIC_GATEWAY_API_KEY: "unpaired-gateway-key" },
+    {
+      JEV_API_BASE_URL: "http://gateway.example",
+      FABRIC_GATEWAY_API_KEY: "gateway-key",
+    },
+    {
+      JEV_API_BASE_URL: "https://gateway.example/v1/systemone",
+      FABRIC_GATEWAY_API_KEY: "gateway-key",
+    },
+  ])("rejects unsafe or unpaired gateway configuration", (gatewayEnv) => {
+    const config = getServerConfig({ JEV_PROVIDER: "jev", ...gatewayEnv });
+    expect(config.configurationError).toBe(true);
+    expect(config.configured).toBe(false);
+  });
+
   it("rejects malformed public config before it can enable requests or corrupt pricing", () => {
     const valid = publicConfig(mockConfig());
     for (const bad of [
