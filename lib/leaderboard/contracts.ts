@@ -59,9 +59,18 @@ export const entrySchema = z.object({
 });
 export const boardSchema = z.object({
   difficulty: levelSchema,
-  entries: z.array(entrySchema).max(20),
+  entries: z.array(entrySchema).max(10),
   totalPlayers: z.number().int().nonnegative(),
   personalBest: entrySchema.nullable(),
+  updatedAt: z.string(),
+});
+export const leaderboardPageSchema = z.object({
+  difficulty: levelSchema,
+  entries: z.array(entrySchema).max(50),
+  totalPlayers: z.number().int().nonnegative(),
+  matchingPlayers: z.number().int().nonnegative(),
+  nextOffset: z.number().int().positive().nullable(),
+  query: z.string().max(18),
   updatedAt: z.string(),
 });
 export const resultSchema = z.object({
@@ -88,6 +97,7 @@ export const startResponseSchema = z.object({
   matchId: z.string(),
 });
 export type Leaderboard = z.infer<typeof boardSchema>;
+export type LeaderboardPage = z.infer<typeof leaderboardPageSchema>;
 export type MatchResult = z.infer<typeof resultSchema>;
 export type FinishMatch = z.infer<typeof finishMatchSchema>;
 export type StartMatch = z.infer<typeof startMatchSchema>;

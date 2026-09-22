@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowRight, RefreshCw, Trophy } from "lucide-react";
+import LeaderboardModal from "@/components/game/LeaderboardModal";
 import {
   DEFAULT_DIFFICULTY,
   DIFFICULTY_LEVELS,
@@ -89,6 +90,7 @@ export default function Leaderboard({
   latestResult?: RecordingState["result"];
 }) {
   const [level, setLevel] = useState<DifficultyLevel>(DEFAULT_DIFFICULTY);
+  const [fullBoardOpen, setFullBoardOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [state, setState] = useState<{
     board: Board | null;
@@ -239,25 +241,28 @@ export default function Leaderboard({
           </>
         )}
       </div>
-      <div className="leaderboard-rules">
-        <p>
-          Completed matches rank when Fabric/Jev makes at least 70% of all
-          decisions. Losses, every strategy, and fallback play are allowed. Time
-          includes countdowns, excludes pauses. Equal times share a rank.
-        </p>
-        <p>
-          Community leaderboard: browser-reported results, not cheat-proof. Your
-          nickname and result are public. Personal bests are tied to this
-          browser, not a verified account.
-        </p>
+      <div className="leaderboard-footer">
         {visible && (
           <span>
             {visible.totalPlayers} ranked{" "}
             {visible.totalPlayers === 1 ? "player" : "players"} on{" "}
-            {DIFFICULTY_LEVELS[level].label} · Top 20 shown
+            {DIFFICULTY_LEVELS[level].label} · Top 10 shown
           </span>
         )}
+        <button
+          className="secondary-button leaderboard-full-button"
+          onClick={() => setFullBoardOpen(true)}
+        >
+          View full leaderboard
+          <ArrowRight size={16} />
+        </button>
       </div>
+      {fullBoardOpen && (
+        <LeaderboardModal
+          initialLevel={level}
+          onClose={() => setFullBoardOpen(false)}
+        />
+      )}
     </section>
   );
 }

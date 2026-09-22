@@ -14,7 +14,6 @@ import {
   Download,
   Expand,
   Gamepad2,
-  GitFork,
   HelpCircle,
   Keyboard,
   MousePointer2,
@@ -86,6 +85,20 @@ type Runtime = {
   renderer: CourtRenderer;
   recorder: MatchRecorder;
 };
+
+function GitHubMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="-0.6 -0.6 25.2 25.2"
+      fill="currentColor"
+    >
+      <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.3c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0C16.6 5.9 17.6 6.2 17.6 6.2c.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3Z" />
+    </svg>
+  );
+}
 
 export default function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -555,8 +568,25 @@ export default function GameShell() {
             <HelpCircle size={16} />
             <span>How to play</span>
           </button>
-          <a href="https://typesafe.ai" target="_blank" rel="noreferrer">
-            Meet Jev <ArrowUpRight size={15} />
+          <a
+            className="header-attribution fabric-attribution"
+            href="https://app.fabricgateway.ai?utm_source=jevpong"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span>Powered by</span>
+            <b>Fabric Gateway</b>
+            <ArrowUpRight size={13} />
+          </a>
+          <a
+            className="header-attribution github-attribution"
+            href="https://github.com/Postman-Devrel/JevPong"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Jev Pong on GitHub"
+          >
+            <GitHubMark size={17} />
+            <b>GitHub</b>
           </a>
         </div>
       </header>
@@ -1189,23 +1219,6 @@ export default function GameShell() {
         <nav className="footer-links" aria-label="Project links">
           <a href="https://typesafe.ai" target="_blank" rel="noreferrer">
             Powered by <b>TypeSafe</b>
-            <ArrowUpRight size={13} />
-          </a>
-          <a
-            href="https://app.fabricgateway.ai?utm_source=jevpong"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Powered by <b>Postman Fabric Gateway</b>
-            <ArrowUpRight size={13} />
-          </a>
-          <a
-            href="https://github.com/Postman-Devrel/JevPong"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <GitFork size={13} />
-            <b>Fork on GitHub</b>
             <ArrowUpRight size={13} />
           </a>
         </nav>

@@ -5,10 +5,11 @@ and a post-match rank. Supabase stays private: browsers call the existing
 Next.js `/api/leaderboard/*` routes, and only those server routes carry the
 Supabase secret key.
 
-The Supabase migration is in
-[`supabase/migrations/202609220001_jev_leaderboard.sql`](../supabase/migrations/202609220001_jev_leaderboard.sql).
-It creates the match table, ranking indexes, Row Level Security configuration,
-and transactional database functions used by the app.
+The Supabase migrations are in [`supabase/migrations`](../supabase/migrations).
+The first creates the match table, ranking indexes, Row Level Security
+configuration, and transactional database functions. The second adds the
+searchable leaderboard browser and changes the compact board to ten entries.
+The third fixes the browser response contract and removes its top-50 cap.
 
 ## Rules
 
@@ -30,9 +31,10 @@ and transactional database functions used by the app.
 
 1. Create a Supabase project. Select the region closest to the deployed Next.js
    server; London is appropriate when the application server is in London.
-2. Open **SQL Editor → New query**, paste the complete migration SQL linked
-   above, and run it once. Confirm that `public.jev_matches`, the three public
-   `jev_leaderboard_*` RPCs, and their board-data helper exist.
+2. Open **SQL Editor → New query** and run the migration files in filename
+   order. If the earlier migrations are already installed, run only the newer
+   files, including `202609220003_unbounded_leaderboard_browser.sql`. Confirm that `public.jev_matches`,
+   the four public `jev_leaderboard_*` RPCs, and their board-data helper exist.
 3. Open **Settings → API Keys** and create or copy a new server secret beginning
    with `sb_secret_`. Do not use a publishable key. Do not paste the secret into
    chat, source control, screenshots, or any `NEXT_PUBLIC_` variable.
@@ -127,9 +129,12 @@ launch. The built-in limiter is per application instance.
 
 ## HTTP API
 
-- `GET /api/leaderboard?difficulty=1|2|3`: top 20 plus this browser's personal
-  best, even when outside the top 20. Omitting `difficulty` defaults to Hard
+- `GET /api/leaderboard?difficulty=1|2|3`: top 10 plus this browser's personal
+  best, even when outside the top 10. Omitting `difficulty` defaults to Hard
   (`3`).
+- `GET /api/leaderboard?difficulty=1|2|3&view=full&q=NAME&offset=0&limit=50`:
+  a name-filtered page from the full level leaderboard. `limit` is capped at
+  50; the modal requests the next page as the player scrolls.
 - `POST /api/leaderboard/start`: stores an idempotent start and returns a signed
   match ticket.
 - `POST /api/leaderboard/finish`: transactionally completes the existing row

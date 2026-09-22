@@ -388,6 +388,19 @@ describe("leaderboard API and storage adapters", () => {
       calls.push({ url, init, body });
       if (url.endsWith("/jev_leaderboard_board"))
         return Response.json({ ok: true, data: board });
+      if (url.endsWith("/jev_leaderboard_page"))
+        return Response.json({
+          ok: true,
+          data: {
+            difficulty: body.p_difficulty,
+            entries: [],
+            totalPlayers: 0,
+            matchingPlayers: 0,
+            nextOffset: null,
+            query: body.p_query,
+            updatedAt: board.updatedAt,
+          },
+        });
       if (url.endsWith("/jev_leaderboard_start"))
         return Response.json({
           ok: true,
@@ -455,6 +468,13 @@ describe("leaderboard API and storage adapters", () => {
       });
 
     expect((await handler.GET(request("?difficulty=3"))).status).toBe(200);
+    expect(
+      (
+        await handler.GET(
+          request("?difficulty=2&view=full&q=Ada&offset=50&limit=50"),
+        )
+      ).status,
+    ).toBe(200);
     const started = await handler.START(
       request("/start", {
         clientMatchId: "supabase-match",
@@ -489,6 +509,7 @@ describe("leaderboard API and storage adapters", () => {
     expect(finished.status).toBe(200);
     expect(calls.map((call) => call.url)).toEqual([
       "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_board",
+      "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_page",
       "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_start",
       "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_finish",
     ]);
@@ -503,7 +524,14 @@ describe("leaderboard API and storage adapters", () => {
       p_player_id: "00000000-0000-0000-0000-000000000000",
       p_version: "jev-pong-1",
     });
-    expect(calls[2].body).toMatchObject({
+    expect(calls[1].body).toEqual({
+      p_difficulty: 2,
+      p_query: "Ada",
+      p_offset: 50,
+      p_limit: 50,
+      p_version: "jev-pong-1",
+    });
+    expect(calls[3].body).toMatchObject({
       p_match_id: startData.matchId,
       p_player_name: "Ada",
       p_duration_ms: 50000,

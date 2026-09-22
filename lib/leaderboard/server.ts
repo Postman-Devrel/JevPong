@@ -5,6 +5,7 @@ import { DEFAULT_DIFFICULTY, GAME } from "../game/constants";
 import {
   boardSchema,
   finishMatchSchema,
+  leaderboardPageSchema,
   LEADERBOARD_VERSION,
   levelSchema,
   MAX_MATCH_MS,
@@ -97,13 +98,22 @@ function configuration(env: Environment): Config {
 }
 
 function supabasePayload(
-  action: "board" | "start" | "finish",
+  action: "board" | "page" | "start" | "finish",
   payload: Record<string, unknown>,
 ) {
   if (action === "board") {
     return {
       p_difficulty: payload.difficulty,
       p_player_id: payload.playerId,
+      p_version: payload.version,
+    };
+  }
+  if (action === "page") {
+    return {
+      p_difficulty: payload.difficulty,
+      p_query: payload.query,
+      p_offset: payload.offset,
+      p_limit: payload.limit,
       p_version: payload.version,
     };
   }
@@ -260,7 +270,7 @@ export function createLeaderboardHandlers(options: Options = {}) {
     buckets.set(key, times);
   }
   async function call(
-    action: "board" | "start" | "finish",
+    action: "board" | "page" | "start" | "finish",
     payload: Record<string, unknown>,
   ): Promise<unknown> {
     const config = configuration(env);
@@ -351,13 +361,33 @@ export function createLeaderboardHandlers(options: Options = {}) {
   return {
     GET: guard(async (request) => {
       const { secret } = configuration(env);
+      const search = new URL(request.url).searchParams;
       const difficulty = levelSchema.parse(
-        Number(
-          new URL(request.url).searchParams.get("difficulty") ??
-            DEFAULT_DIFFICULTY,
-        ),
+        Number(search.get("difficulty") ?? DEFAULT_DIFFICULTY),
       );
       limit(request, "board");
+      if (search.get("view") === "full") {
+        const input = z
+          .object({
+            query: z.string().trim().max(18),
+            offset: z.number().int().min(0).max(10_000_000),
+            limit: z.number().int().min(1).max(50),
+          })
+          .parse({
+            query: search.get("q") ?? "",
+            offset: Number(search.get("offset") ?? 0),
+            limit: Number(search.get("limit") ?? 10),
+          });
+        const data = storageData(
+          leaderboardPageSchema,
+          await call("page", {
+            difficulty,
+            ...input,
+            version: LEADERBOARD_VERSION,
+          }),
+        );
+        return Response.json(data, { headers });
+      }
       const playerId =
         identity(request, secret) ?? "00000000-0000-0000-0000-000000000000";
       const key = `${difficulty}:${playerId}`;

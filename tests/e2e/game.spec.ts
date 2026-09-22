@@ -489,9 +489,35 @@ test("shows the public leaderboard by level, including your best outside the top
     completedAt: "2026-09-22T12:00:00.000Z",
   };
   await page.route("**/api/leaderboard?*", (route) => {
-    const difficulty = Number(
-      new URL(route.request().url()).searchParams.get("difficulty"),
-    );
+    const search = new URL(route.request().url()).searchParams;
+    const difficulty = Number(search.get("difficulty"));
+    if (search.get("view") === "full") {
+      const offset = Number(search.get("offset") ?? 0);
+      const query = (search.get("q") ?? "").toLowerCase();
+      const entries = Array.from({ length: 75 }, (_, index) => ({
+        ...entry,
+        matchId: `full-${difficulty}-${index + 1}`,
+        playerName: index === 0 ? "Ada Lovelace" : `Player ${index + 1}`,
+        rank: index + 1,
+        durationMs: entry.durationMs + index * 1000,
+      })).filter((candidate) =>
+        candidate.playerName.toLowerCase().includes(query),
+      );
+      const limit = Number(search.get("limit") ?? 50);
+      const slice = entries.slice(offset, offset + limit);
+      return route.fulfill({
+        json: {
+          difficulty,
+          entries: slice,
+          totalPlayers: 75,
+          matchingPlayers: entries.length,
+          nextOffset:
+            offset + slice.length < entries.length ? offset + limit : null,
+          query,
+          updatedAt: entry.completedAt,
+        },
+      });
+    }
     return route.fulfill({
       json: {
         difficulty,
@@ -511,9 +537,10 @@ test("shows the public leaderboard by level, including your best outside the top
       },
     });
   });
-  await page.getByRole("link", { name: "Leaderboard", exact: true }).click();
-  await page.getByRole("button", { name: "Refresh leaderboard" }).click();
   const board = page.getByRole("region", { name: "Who finishes fastest?" });
+  await board.scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "Hard leaderboard" }).click();
+  await page.getByRole("button", { name: "Refresh leaderboard" }).click();
   await expect(board).toContainText("Ada Lovelace");
   await expect(board).toContainText("0:55.43");
   await expect(board).toContainText("#25");
@@ -522,6 +549,23 @@ test("shows the public leaderboard by level, including your best outside the top
   await page.getByRole("button", { name: "Medium leaderboard" }).click();
   await expect(board).toContainText("Your best on Medium");
   await expect(board).toContainText("1:25.43");
+  await expect(board).not.toContainText("Completed matches rank when");
+  await page.getByRole("button", { name: "View full leaderboard" }).click();
+  const dialog = page.getByRole("dialog", { name: "Global leaderboard" });
+  await expect(dialog).toContainText("GLOBAL PERSONAL BESTS");
+  await expect(dialog).toContainText("Player 50");
+  await dialog.locator(".leaderboard-modal-scroll").evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(dialog).toContainText("Player 75");
+  await dialog.getByPlaceholder("Search player name").fill("Ada");
+  await advance(page, 300);
+  await expect(dialog.getByText("SEARCHING")).toBeHidden();
+  await expect(dialog.getByRole("row", { name: /Ada Lovelace/ })).toBeVisible();
+  await expect(dialog).toContainText("1 matching player");
+  await dialog.getByRole("button", { name: "Hard full leaderboard" }).click();
+  await expect(dialog.getByRole("row", { name: /Ada Lovelace/ })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close dialog" }).click();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
