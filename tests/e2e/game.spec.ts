@@ -152,6 +152,85 @@ test("starts immediately, shows real telemetry updates, and responds to pointer 
   ).toContainText("$0.000000");
 });
 
+test("defaults to hard, allows easy and medium, and confirms changes during a match", async ({
+  page,
+}) => {
+  const { states } = await setup(page);
+  const easy = page.getByRole("button", {
+    name: "Easy",
+    exact: true,
+  });
+  const medium = page.getByRole("button", {
+    name: "Medium",
+    exact: true,
+  });
+  const hard = page.getByRole("button", {
+    name: "Hard",
+    exact: true,
+  });
+  await expect(hard).toHaveAttribute("aria-pressed", "true");
+  await medium.click();
+  await expect(medium).toHaveAttribute("aria-pressed", "true");
+  await easy.click();
+  await expect(easy).toHaveAttribute("aria-pressed", "true");
+  await expect(hard).toHaveAttribute("aria-pressed", "false");
+  await start(page, states);
+  expect(states.at(-1)!.difficulty).toBe(1);
+  expect(states.at(-1)!.capabilities.shotPlacementEnabled).toBe(false);
+  const originalMatch = states.at(-1)!.matchId;
+
+  await medium.click();
+  const dialog = page.getByRole("dialog", { name: "Change difficulty?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Keep this match" }).click();
+  await expect(easy).toHaveAttribute("aria-pressed", "true");
+  await advance(page, 3_500);
+  expect(states.at(-1)!.matchId).toBe(originalMatch);
+  expect(states.at(-1)!.difficulty).toBe(1);
+
+  await medium.click();
+  await dialog.getByRole("button", { name: "Restart on Medium" }).click();
+  await advance(page, 3_750);
+  await expect(medium).toHaveAttribute("aria-pressed", "true");
+  expect(states.at(-1)!.difficulty).toBe(2);
+  expect(states.at(-1)!.matchId).not.toBe(originalMatch);
+  expect(states.at(-1)!.capabilities.shotPlacementEnabled).toBe(true);
+  const mediumMatch = states.at(-1)!.matchId;
+
+  await page
+    .getByRole("button", { name: "Restart match", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "A fresh start?" })
+    .getByRole("button", { name: "Restart match", exact: true })
+    .click();
+  await advance(page, 3_750);
+  expect(states.at(-1)!.difficulty).toBe(2);
+  expect(states.at(-1)!.matchId).not.toBe(mediumMatch);
+  await expect(medium).toHaveAttribute("aria-pressed", "true");
+
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Export session", exact: true })
+    .click();
+  const download = await downloaded;
+  const exported = JSON.parse(await readFile((await download.path())!, "utf8"));
+  expect(exported.matchConfiguration).toMatchObject({
+    difficulty: 2,
+    difficultyProfile: { level: 2, label: "Medium", aiSpeed: 300 },
+  });
+  expect(
+    exported.events.some(
+      (event: { snapshot: AgentGameState }) => event.snapshot.difficulty === 1,
+    ),
+  ).toBe(true);
+  expect(
+    exported.events.some(
+      (event: { snapshot: AgentGameState }) => event.snapshot.difficulty === 2,
+    ),
+  ).toBe(true);
+});
+
 test("malformed configuration stays playable without agent requests and recovers after retry", async ({
   page,
 }) => {
@@ -259,7 +338,12 @@ test("inspector and downloaded session redact secrets and retain useful decision
   expect(text).not.toContain(SECRET_MARKER);
   expect(exported).toMatchObject({
     appVersion: "1.0.0",
-    matchConfiguration: { width: 960, height: 600, winningScore: 7 },
+    matchConfiguration: {
+      width: 960,
+      height: 600,
+      winningScore: 7,
+      difficulty: 3,
+    },
     modelConfiguration: { provider: "mock" },
     metrics: { inputTokens: 0, estimatedCostUsd: 0 },
     retention: { historyLimit: 50 },
@@ -305,7 +389,7 @@ test("finishes a first-to-seven match and restarts without reloading", async ({
   await page.getByRole("button", { name: "Download PNG" }).click();
   const cardDownload = await cardDownloadPromise;
   expect(cardDownload.suggestedFilename()).toMatch(
-    /^jev-pong-ada-lovelace-(?:7-[0-6]|[0-6]-7)\.png$/,
+    /^jev-pong-ada-lovelace-(?:7-[0-6]|[0-6]-7)-hard\.png$/,
   );
   const cardPath = await cardDownload.path();
   expect(cardPath).not.toBeNull();

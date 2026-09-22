@@ -15,6 +15,7 @@ import type {
   AgentGameState,
   AgentPublicConfig,
   Movement,
+  ShotTarget,
 } from "@/lib/agent/contracts";
 
 export type MonitorMetrics = {
@@ -108,6 +109,7 @@ export default function DecisionMonitor({
   playing,
   explanation,
   currentMovement,
+  currentShotTarget,
   onInspect,
 }: {
   decision: AgentDecision | null;
@@ -118,12 +120,15 @@ export default function DecisionMonitor({
   playing: boolean;
   explanation: string | null;
   currentMovement?: Movement;
+  currentShotTarget?: ShotTarget | null;
   onInspect: () => void;
 }) {
   const source =
     decision?.source ??
     (!config ? "connecting" : config.provider === "jev" ? "jev" : "mock");
   const movement = currentMovement ?? decision?.movement;
+  const shotTarget =
+    currentShotTarget === undefined ? decision?.shotTarget : currentShotTarget;
   const MovementIcon =
     movement === "UP" ? ArrowUp : movement === "DOWN" ? ArrowDown : Minus;
   const competitors = decision
@@ -229,6 +234,25 @@ export default function DecisionMonitor({
               : "—"}
           </b>
         </div>
+        {decision?.shotTarget && (
+          <div className="shot-placement">
+            <span>SHOT TARGET</span>
+            <div>
+              <strong>
+                {shotTarget
+                  ? `${shotTarget.charAt(0)}${shotTarget.slice(1).toLowerCase()} court`
+                  : "Natural return"}
+              </strong>
+              <small>
+                {shotTarget
+                  ? decision.shotTargetConfidence == null
+                    ? "Placement selected"
+                    : `${Math.round(decision.shotTargetConfidence * 100)}% confidence`
+                  : `Jev chose ${decision.shotTarget.toLowerCase()} · not applied`}
+              </small>
+            </div>
+          </div>
+        )}
         <div className="quick-metrics">
           <div>
             <span>ROUND TRIP</span>
@@ -301,6 +325,19 @@ export default function DecisionMonitor({
                   {snapshot.prediction.interceptY == null
                     ? "Recentering"
                     : `${Math.round(snapshot.prediction.interceptY)} px`}
+                </b>
+              </>
+            )}
+            {decision?.shotTargetProbabilities && (
+              <>
+                <span>Upper / center / lower</span>
+                <b>
+                  {(["UPPER", "CENTER", "LOWER"] as const)
+                    .map(
+                      (target) =>
+                        `${Math.round((decision.shotTargetProbabilities?.[target] ?? 0) * 100)}%`,
+                    )
+                    .join(" / ")}
                 </b>
               </>
             )}

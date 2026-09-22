@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const MOVEMENTS = ["UP", "DOWN", "HOLD"] as const;
 export const RETURN_STYLES = ["SAFE", "ANGLED", "FAST"] as const;
+export const SHOT_TARGETS = ["UPPER", "CENTER", "LOWER"] as const;
 export const STRATEGIES = ["balanced", "aggressive", "defensive"] as const;
 export const MOCK_SCENARIOS = [
   "normal",
@@ -13,6 +14,7 @@ export const MOCK_SCENARIOS = [
 ] as const;
 export type Movement = (typeof MOVEMENTS)[number];
 export type ReturnStyle = (typeof RETURN_STYLES)[number];
+export type ShotTarget = (typeof SHOT_TARGETS)[number];
 export type Strategy = (typeof STRATEGIES)[number];
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 export type DecisionSource = "jev" | "mock" | "fallback";
@@ -49,6 +51,7 @@ export const agentGameStateSchema = z
     matchId: identifier,
     roundId: nonnegativeInteger,
     directionVersion: nonnegativeInteger,
+    difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     arena: z
       .object({
         width: finite.positive().max(10_000),
@@ -74,13 +77,37 @@ export const agentGameStateSchema = z
       })
       .strict(),
     humanPaddle: z
-      .object({ centerY: coordinate, velocityY: velocity })
+      .object({
+        centerY: coordinate,
+        velocityY: velocity,
+        height: finite.positive().max(10_000),
+        maxSpeed: finite.positive().max(20_000),
+      })
+      .strict(),
+    capabilities: z
+      .object({
+        movementSpeed: finite.positive().max(20_000),
+        boostSpeed: finite.positive().max(20_000),
+        cautiousSpeedScale: finite.min(0).max(1),
+        recenterSpeedScale: finite.min(0).max(1),
+        boostDurationMs: finite.nonnegative().max(60_000),
+        boostCooldownMs: finite.nonnegative().max(60_000),
+        boostCooldownRemainingMs: finite.nonnegative().max(60_000),
+        movementLeaseMs: finite.positive().max(5_000),
+        shotPlacementEnabled: z.boolean(),
+        maxShotAngleRadians: finite.positive().max(1.1),
+        maxBallSpeed: finite.positive().max(20_000),
+      })
       .strict(),
     prediction: z
       .object({
         interceptY: coordinate.nullable(),
         timeToImpactMs: finite.nonnegative().max(1_000_000).nullable(),
         uncertaintyPx: finite.nonnegative().max(20_000),
+        reachableMinY: coordinate,
+        reachableMaxY: coordinate,
+        boostReachableMinY: coordinate,
+        boostReachableMaxY: coordinate,
       })
       .strict(),
     match: z
@@ -116,6 +143,10 @@ export interface AgentDecision {
   returnStyle: ReturnStyle;
   returnStyleProbabilities: Record<ReturnStyle, number>;
   returnStyleConfidence: number;
+  /** Optional for older provider responses; absent means no explicit placement. */
+  shotTarget?: ShotTarget;
+  shotTargetProbabilities?: Record<ShotTarget, number>;
+  shotTargetConfidence?: number;
   useBoostProbability: number;
   model: string;
   usage: { inputTokens: number; outputTokens: number; billable?: boolean };

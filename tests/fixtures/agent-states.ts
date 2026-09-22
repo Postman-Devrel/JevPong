@@ -6,6 +6,7 @@ export const baseState: AgentGameState = {
   matchId: "fixture-match",
   roundId: 1,
   directionVersion: 1,
+  difficulty: 3,
   arena: { width: 960, height: 600 },
   ball: {
     x: 600,
@@ -16,8 +17,29 @@ export const baseState: AgentGameState = {
     movingTowardAgent: true,
   },
   agentPaddle: { centerY: 300, velocityY: 0, height: 96, boostReady: true },
-  humanPaddle: { centerY: 270, velocityY: 0 },
-  prediction: { interceptY: 220, timeToImpactMs: 760, uncertaintyPx: 0 },
+  humanPaddle: { centerY: 270, velocityY: 0, height: 120, maxSpeed: 760 },
+  capabilities: {
+    movementSpeed: 450,
+    boostSpeed: 680,
+    cautiousSpeedScale: 1,
+    recenterSpeedScale: 1,
+    boostDurationMs: 320,
+    boostCooldownMs: 2_600,
+    boostCooldownRemainingMs: 0,
+    movementLeaseMs: 1_000,
+    shotPlacementEnabled: true,
+    maxShotAngleRadians: 1.04,
+    maxBallSpeed: 680,
+  },
+  prediction: {
+    interceptY: 220,
+    timeToImpactMs: 760,
+    uncertaintyPx: 0,
+    reachableMinY: 48,
+    reachableMaxY: 552,
+    boostReachableMinY: 48,
+    boostReachableMaxY: 552,
+  },
   match: { humanScore: 1, agentScore: 2, rallyLength: 4 },
   agent: {
     strategy: "balanced",
@@ -27,8 +49,48 @@ export const baseState: AgentGameState = {
   },
 };
 
-function variant(overrides: Partial<AgentGameState>): AgentGameState {
-  return { ...structuredClone(baseState), ...overrides };
+function variant(
+  overrides: Partial<Omit<AgentGameState, "prediction">> & {
+    prediction?: Partial<AgentGameState["prediction"]>;
+  },
+): AgentGameState {
+  const state = {
+    ...structuredClone(baseState),
+    ...overrides,
+    prediction: { ...baseState.prediction, ...overrides.prediction },
+  };
+  const seconds = Math.min(
+    state.capabilities.movementLeaseMs / 1_000,
+    Math.max(
+      0,
+      ((state.prediction.timeToImpactMs ?? state.capabilities.movementLeaseMs) -
+        (state.agent.smoothedLatencyMs ?? 0)) /
+        1_000,
+    ),
+  );
+  const reach = state.capabilities.movementSpeed * seconds;
+  const boostedReach = state.agentPaddle.boostReady
+    ? reach +
+      (state.capabilities.boostSpeed - state.capabilities.movementSpeed) *
+        Math.min(seconds, state.capabilities.boostDurationMs / 1_000)
+    : reach;
+  const halfHeight = state.agentPaddle.height / 2;
+  Object.assign(state.prediction, {
+    reachableMinY: Math.max(halfHeight, state.agentPaddle.centerY - reach),
+    reachableMaxY: Math.min(
+      state.arena.height - halfHeight,
+      state.agentPaddle.centerY + reach,
+    ),
+    boostReachableMinY: Math.max(
+      halfHeight,
+      state.agentPaddle.centerY - boostedReach,
+    ),
+    boostReachableMaxY: Math.min(
+      state.arena.height - halfHeight,
+      state.agentPaddle.centerY + boostedReach,
+    ),
+  });
+  return state;
 }
 
 export const decisionFixtures: Record<string, AgentGameState> = {
@@ -83,6 +145,12 @@ export const officialResponseFixture = {
       choice: "SAFE",
       probabilities: { SAFE: 0.71, ANGLED: 0.21, FAST: 0.08 },
       confidence: 0.62,
+    },
+    shot_target: {
+      type: "choice",
+      choice: "LOWER",
+      probabilities: { UPPER: 0.08, CENTER: 0.14, LOWER: 0.78 },
+      confidence: 0.7,
     },
     use_boost: { type: "noul", noul: 0.12 },
   },

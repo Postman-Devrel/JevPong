@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PongEngine } from "../../lib/game/engine";
-import { GAME } from "../../lib/game/constants";
+import { GAME, type DifficultyLevel } from "../../lib/game/constants";
 import { predictIntercept } from "../../lib/game/prediction";
 import { DecisionController } from "../../lib/agent/decision-controller";
 import { MockProvider } from "../../lib/agent/providers/mock";
@@ -18,14 +18,25 @@ async function flush() {
   for (let index = 0; index < 6; index++) await Promise.resolve();
 }
 
-async function simulateMatch(latencyMs: number, aimOffset: number) {
-  const engine = new PongEngine();
-  const mock = new MockProvider({ seed: 42, latencyMs: 0 });
+async function simulateMatch(
+  latencyMs: number,
+  aimOffset: number,
+  options: {
+    level?: DifficultyLevel;
+    seed?: number;
+    durationSeconds?: number;
+  } = {},
+) {
+  const engine = new PongEngine(options.level ?? 1);
+  const mock = new MockProvider({ seed: options.seed ?? 42, latencyMs: 0 });
   let now = 0;
   let requests = 0;
   let playingMs = 0;
   let nextHumanInput = 0;
   let totalRallyHits = 0;
+  const points = { human: 0, ai: 0 };
+  const hits = { human: 0, ai: 0 };
+  let completedMatches = 0;
   const returns: Array<{ due: number; deliver: () => void }> = [];
   const controller = new DecisionController(engine, {
     now: () => now,
@@ -42,7 +53,7 @@ async function simulateMatch(latencyMs: number, aimOffset: number) {
     },
   });
   engine.start();
-  for (let frame = 0; frame < 60 * 600; frame++) {
+  for (let frame = 0; frame < 60 * (options.durationSeconds ?? 600); frame++) {
     now = frame * (1000 / 60);
     if (now >= nextHumanInput) {
       const intercept = predictIntercept(
@@ -69,14 +80,28 @@ async function simulateMatch(latencyMs: number, aimOffset: number) {
     await flush();
     if (engine.state.phase === "playing") playingMs += 1000 / 60;
     engine.update(1 / 60);
-    for (const event of engine.consumeEvents())
+    for (const event of engine.consumeEvents()) {
       if (event.type === "hit") totalRallyHits++;
-    if (engine.state.phase === "finished") break;
+      if (event.type === "hit" && event.side) hits[event.side]++;
+      if (event.type === "score" && event.side) points[event.side]++;
+    }
+    if (engine.state.phase === "finished") {
+      completedMatches++;
+      if (!options.durationSeconds) break;
+      engine.restart();
+      controller.reset();
+    }
   }
   const result = {
     latencyMs,
     aimOffset,
+    level: engine.state.difficulty,
+    seed: options.seed ?? 42,
     score: { ...engine.state.score },
+    points,
+    hits,
+    completedMatches,
+    playingSeconds: playingMs / 1000,
     finished: engine.state.phase === "finished",
     seconds: Math.round(now / 1000),
     longestRally: engine.state.longestRally,
@@ -98,7 +123,7 @@ async function simulateMatch(latencyMs: number, aimOffset: number) {
 
 describe("deterministic playability benchmark", () => {
   it("measures complete matches with the actual mock provider at realistic latency", async () => {
-    const results = [];
+    const results: Array<Awaited<ReturnType<typeof simulateMatch>>> = [];
     for (const [latency, aim] of [
       [80, 58],
       [240, 58],
@@ -117,5 +142,70 @@ describe("deterministic playability benchmark", () => {
       expect(result.averageRally).toBeGreaterThan(3);
       expect(result.averageRally).toBeLessThan(40);
     }
+  }, 30_000);
+
+  it("substantially reduces player scoring across paired levels, seeds and network latency", async () => {
+    const results: Array<Awaited<ReturnType<typeof simulateMatch>>> = [];
+    // Equal wall-clock windows, player policy, seeds and latency across all
+    // levels. Finished matches restart; an unfinished game is never a win.
+    for (const seed of [42, 101])
+      for (const latency of [80, 500])
+        for (const level of [1, 2, 3] as const)
+          results.push(
+            await simulateMatch(latency, 58, {
+              level,
+              seed,
+              durationSeconds: 180,
+            }),
+          );
+    const summaries = ([1, 2, 3] as const).map((level) => {
+      const runs = results.filter((result) => result.level === level);
+      const playingSeconds = runs.reduce(
+        (sum, result) => sum + result.playingSeconds,
+        0,
+      );
+      const playerPoints = runs.reduce(
+        (sum, result) => sum + result.points.human,
+        0,
+      );
+      const agentReturns = runs.reduce(
+        (sum, result) => sum + result.hits.ai,
+        0,
+      );
+      return {
+        level,
+        playerPoints,
+        agentReturns,
+        playerPointsPerMinute: (playerPoints / playingSeconds) * 60,
+        agentReturnsPerMinute: (agentReturns / playingSeconds) * 60,
+      };
+    });
+    console.info(
+      "Difficulty benchmark (mock decisions):",
+      JSON.stringify({
+        summaries,
+        runs: results.map(
+          ({ level, seed, latencyMs, points, completedMatches }) => ({
+            level,
+            seed,
+            latencyMs,
+            points,
+            completedMatches,
+          }),
+        ),
+      }),
+    );
+    expect(summaries[1].playerPointsPerMinute).toBeLessThan(
+      summaries[0].playerPointsPerMinute,
+    );
+    expect(summaries[2].playerPointsPerMinute).toBeLessThan(
+      summaries[0].playerPointsPerMinute * 0.5,
+    );
+    expect(summaries[2].playerPointsPerMinute).toBeLessThanOrEqual(
+      summaries[1].playerPointsPerMinute,
+    );
+    expect(summaries[2].agentReturnsPerMinute).toBeGreaterThan(
+      summaries[0].agentReturnsPerMinute,
+    );
   }, 30_000);
 });

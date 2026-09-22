@@ -1,3 +1,5 @@
+import { DIFFICULTY_LEVELS, type DifficultyLevel } from "../game/constants";
+
 export interface ResultCardData {
   playerName: string;
   humanScore: number;
@@ -8,6 +10,7 @@ export interface ResultCardData {
   fallbackRate: number;
   latencyP50Ms: number | null;
   model: string;
+  difficulty?: DifficultyLevel;
 }
 
 const CARD_WIDTH = 1200;
@@ -32,7 +35,10 @@ export function resultShareText(data: ResultCardData): string {
     data.winner === "human"
       ? `beat Jev ${data.humanScore}–${data.agentScore}`
       : `took on Jev and scored ${data.humanScore}`;
-  return `${name} ${result}. Can you beat the machine?`;
+  const difficulty = data.difficulty
+    ? ` on ${DIFFICULTY_LEVELS[data.difficulty].label}`
+    : "";
+  return `${name} ${result}${difficulty}. Can you beat the machine?`;
 }
 
 export function resultFilename(data: ResultCardData): string {
@@ -43,7 +49,10 @@ export function resultFilename(data: ResultCardData): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 28);
-  return `jev-pong-${slug || "player"}-${data.humanScore}-${data.agentScore}.png`;
+  const difficulty = data.difficulty
+    ? `-${DIFFICULTY_LEVELS[data.difficulty].label.toLowerCase()}`
+    : "";
+  return `jev-pong-${slug || "player"}-${data.humanScore}-${data.agentScore}${difficulty}.png`;
 }
 
 function roundedRect(
@@ -147,6 +156,17 @@ export async function createResultCardBlob(
   context.fillStyle = data.winner === "human" ? "#c4f46e" : "#ff8a4c";
   context.font = '500 20px "IBM Plex Mono", monospace';
   context.fillText(headline, 184, 173);
+  if (data.difficulty) {
+    context.textAlign = "right";
+    context.fillStyle = "#c4f46e";
+    context.font = '500 17px "IBM Plex Mono", monospace';
+    context.fillText(
+      DIFFICULTY_LEVELS[data.difficulty].label.toUpperCase(),
+      1118,
+      173,
+    );
+    context.textAlign = "left";
+  }
 
   const player = normalizePlayerName(data.playerName).toUpperCase();
   context.fillStyle = "#eeefe5";

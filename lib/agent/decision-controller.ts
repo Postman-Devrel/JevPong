@@ -74,6 +74,20 @@ function validDecision(value: unknown): value is AgentDecision {
     probability(d.movementConfidence) &&
     probability(d.returnStyleConfidence) &&
     probability(d.useBoostProbability) &&
+    ((d.shotTarget === undefined &&
+      d.shotTargetConfidence === undefined &&
+      d.shotTargetProbabilities === undefined) ||
+      (typeof d.shotTarget === "string" &&
+        ["UPPER", "CENTER", "LOWER"].includes(d.shotTarget) &&
+        probability(d.shotTargetConfidence) &&
+        !!d.shotTargetProbabilities &&
+        ["UPPER", "CENTER", "LOWER"].every((key) =>
+          probability(
+            d.shotTargetProbabilities![
+              key as keyof typeof d.shotTargetProbabilities
+            ],
+          ),
+        ))) &&
     !!d.movementProbabilities &&
     ["UP", "DOWN", "HOLD"].every((key) =>
       probability(d.movementProbabilities[key as Movement]),
@@ -122,6 +136,9 @@ export function createFallbackDecision(
     returnStyle: "SAFE",
     returnStyleProbabilities: { SAFE: 1, ANGLED: 0, FAST: 0 },
     returnStyleConfidence: 0,
+    shotTarget: "CENTER",
+    shotTargetProbabilities: { UPPER: 0, CENTER: 1, LOWER: 0 },
+    shotTargetConfidence: 0,
     useBoostProbability: 0,
     model: "deterministic-fallback",
     usage: { inputTokens: 0, outputTokens: 0, billable: false },
@@ -158,7 +175,7 @@ export class DecisionController {
   private disposed = false;
   private fallbackReason: FallbackReason | null = null;
   private intervalMs: number;
-  private awayIntervalMs: number;
+  private awayIntervalMs: number | null;
   private timeoutMs: number;
   private readonly clock: () => number;
 
@@ -171,10 +188,10 @@ export class DecisionController {
       100,
       options.intervalMs ?? ACTION_POLICY.decisionIntervalMs,
     );
-    this.awayIntervalMs = Math.max(
-      this.intervalMs,
-      options.awayIntervalMs ?? ACTION_POLICY.awayDecisionIntervalMs,
-    );
+    this.awayIntervalMs =
+      options.awayIntervalMs === undefined
+        ? null
+        : Math.max(this.intervalMs, options.awayIntervalMs);
     this.timeoutMs = Math.max(
       100,
       options.timeoutMs ?? ACTION_POLICY.timeoutMs,
@@ -194,7 +211,8 @@ export class DecisionController {
       Number.isFinite(options.awayIntervalMs)
     )
       this.awayIntervalMs = Math.max(this.intervalMs, options.awayIntervalMs);
-    else this.awayIntervalMs = Math.max(this.intervalMs, this.awayIntervalMs);
+    else if (this.awayIntervalMs !== null)
+      this.awayIntervalMs = Math.max(this.intervalMs, this.awayIntervalMs);
     if (options.timeoutMs !== undefined && Number.isFinite(options.timeoutMs))
       this.timeoutMs = Math.max(100, options.timeoutMs);
   }
@@ -332,7 +350,13 @@ export class DecisionController {
     this.telemetry.inFlight = true;
     this.nextRequestAt =
       nowMs +
-      (snapshot.ball.movingTowardAgent ? this.intervalMs : this.awayIntervalMs);
+      (snapshot.ball.movingTowardAgent
+        ? this.intervalMs
+        : Math.max(
+            this.intervalMs,
+            this.awayIntervalMs ??
+              this.engine.difficultyConfig.awayDecisionIntervalMs,
+          ));
     // Promise.resolve also handles synchronous throws from custom transports.
     Promise.resolve()
       .then(() => this.options.requestDecision(snapshot, controller.signal))

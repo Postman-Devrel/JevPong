@@ -34,12 +34,15 @@ describe.skipIf(process.env.JEV_LIVE_TEST !== "1")(
         expect(result.decision.source).toBe("jev");
         expect(result.decision.model).toMatch(/^jev-/);
         expect(result.decision.usage.inputTokens).toBeGreaterThan(0);
+        expect(result.decision.shotTarget).toMatch(/^(UPPER|CENTER|LOWER)$/);
         console.info({
           fixture: name,
           model: result.decision.model,
           movement: result.decision.movement,
           movementConfidence: result.decision.movementConfidence,
           returnStyle: result.decision.returnStyle,
+          shotTarget: result.decision.shotTarget,
+          shotTargetConfidence: result.decision.shotTargetConfidence,
           useBoostProbability: result.decision.useBoostProbability,
           adapterMs: Math.round(result.decision.timing.serverMs),
           usage: result.decision.usage,

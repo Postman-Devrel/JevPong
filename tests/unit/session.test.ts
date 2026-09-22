@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDecision, AgentGameState } from "../../lib/agent/contracts";
 import { SessionTelemetry } from "../../lib/telemetry/session";
+import { baseState } from "../fixtures/agent-states";
 
 function snapshot(sequence = 1): AgentGameState {
   return {
+    ...structuredClone(baseState),
     sequence,
     capturedAtMs: 0,
     matchId: "match-test",
@@ -19,8 +21,15 @@ function snapshot(sequence = 1): AgentGameState {
       movingTowardAgent: true,
     },
     agentPaddle: { centerY: 200, velocityY: 0, height: 96, boostReady: true },
-    humanPaddle: { centerY: 270, velocityY: 0 },
-    prediction: { interceptY: 270, timeToImpactMs: 1_400, uncertaintyPx: 3 },
+    humanPaddle: { ...baseState.humanPaddle, centerY: 270, velocityY: 0 },
+    prediction: {
+      ...baseState.prediction,
+      interceptY: 270,
+      timeToImpactMs: 1_400,
+      uncertaintyPx: 3,
+      reachableMaxY: 492,
+      boostReachableMaxY: 492,
+    },
     match: { humanScore: 0, agentScore: 0, rallyLength: 1 },
     agent: {
       strategy: "balanced",

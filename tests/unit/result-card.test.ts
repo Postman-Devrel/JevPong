@@ -36,4 +36,14 @@ describe("shareable result card data", () => {
     expect(resultFilename(result)).toBe("jev-pong-ada-lovelace-7-4.png");
     expect(resultHeadline({ ...result, winner: "ai" })).toBe("I TOOK ON JEV.");
   });
+
+  it("includes the played difficulty in shared results", () => {
+    const hardResult = { ...result, difficulty: 3 as const };
+    expect(resultShareText(hardResult)).toBe(
+      "Ada Lovelace beat Jev 7–4 on Hard. Can you beat the machine?",
+    );
+    expect(resultFilename(hardResult)).toBe(
+      "jev-pong-ada-lovelace-7-4-hard.png",
+    );
+  });
 });

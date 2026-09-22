@@ -181,10 +181,12 @@ components:
         - matchId
         - roundId
         - directionVersion
+        - difficulty
         - arena
         - ball
         - agentPaddle
         - humanPaddle
+        - capabilities
         - prediction
         - match
         - agent
@@ -201,6 +203,10 @@ components:
           $ref: "#/components/schemas/NonnegativeInteger"
         directionVersion:
           $ref: "#/components/schemas/NonnegativeInteger"
+        difficulty:
+          type: integer
+          enum: [1, 2, 3]
+          description: Selected gameplay level; 3 (Hard) is the default.
         arena:
           $ref: "#/components/schemas/Arena"
         ball:
@@ -209,6 +215,8 @@ components:
           $ref: "#/components/schemas/AgentPaddle"
         humanPaddle:
           $ref: "#/components/schemas/HumanPaddle"
+        capabilities:
+          $ref: "#/components/schemas/AgentCapabilities"
         prediction:
           $ref: "#/components/schemas/Prediction"
         match:
@@ -282,18 +290,94 @@ components:
       required:
         - centerY
         - velocityY
+        - height
+        - maxSpeed
       additionalProperties: false
       properties:
         centerY:
           $ref: "#/components/schemas/Coordinate"
         velocityY:
           $ref: "#/components/schemas/Velocity"
+        height:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 10000
+        maxSpeed:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 20000
+    AgentCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - movementSpeed
+        - boostSpeed
+        - cautiousSpeedScale
+        - recenterSpeedScale
+        - boostDurationMs
+        - boostCooldownMs
+        - boostCooldownRemainingMs
+        - movementLeaseMs
+        - shotPlacementEnabled
+        - maxShotAngleRadians
+        - maxBallSpeed
+      properties:
+        movementSpeed:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 20000
+          description: Normal agent paddle speed in logical pixels per second.
+        boostSpeed:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 20000
+        cautiousSpeedScale:
+          $ref: "#/components/schemas/Probability"
+        recenterSpeedScale:
+          $ref: "#/components/schemas/Probability"
+        boostDurationMs:
+          type: number
+          minimum: 0
+          maximum: 60000
+        boostCooldownMs:
+          type: number
+          minimum: 0
+          maximum: 60000
+        boostCooldownRemainingMs:
+          type: number
+          minimum: 0
+          maximum: 60000
+        movementLeaseMs:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 5000
+        shotPlacementEnabled:
+          type: boolean
+        maxShotAngleRadians:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1.1
+        maxBallSpeed:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 20000
     Prediction:
       type: object
       required:
         - interceptY
         - timeToImpactMs
         - uncertaintyPx
+        - reachableMinY
+        - reachableMaxY
+        - boostReachableMinY
+        - boostReachableMaxY
       additionalProperties: false
       properties:
         interceptY:
@@ -310,6 +394,22 @@ components:
           type: number
           minimum: 0
           maximum: 20000
+        reachableMinY:
+          allOf:
+            - $ref: "#/components/schemas/Coordinate"
+          description: Minimum reachable paddle-center y after measured latency.
+        reachableMaxY:
+          allOf:
+            - $ref: "#/components/schemas/Coordinate"
+          description: Maximum reachable paddle-center y after measured latency.
+        boostReachableMinY:
+          allOf:
+            - $ref: "#/components/schemas/Coordinate"
+          description: Minimum reachable paddle-center y with available boost after latency.
+        boostReachableMaxY:
+          allOf:
+            - $ref: "#/components/schemas/Coordinate"
+          description: Maximum reachable paddle-center y with available boost after latency.
     MatchState:
       type: object
       required:
@@ -406,6 +506,12 @@ components:
           $ref: "#/components/schemas/ReturnStyleProbabilities"
         returnStyleConfidence:
           $ref: "#/components/schemas/Probability"
+        shotTarget:
+          $ref: "#/components/schemas/ShotTarget"
+        shotTargetProbabilities:
+          $ref: "#/components/schemas/ShotTargetProbabilities"
+        shotTargetConfidence:
+          $ref: "#/components/schemas/Probability"
         useBoostProbability:
           $ref: "#/components/schemas/Probability"
         model:
@@ -459,6 +565,20 @@ components:
         ANGLED:
           $ref: "#/components/schemas/Probability"
         FAST:
+          $ref: "#/components/schemas/Probability"
+    ShotTargetProbabilities:
+      type: object
+      required:
+        - UPPER
+        - CENTER
+        - LOWER
+      additionalProperties: false
+      properties:
+        UPPER:
+          $ref: "#/components/schemas/Probability"
+        CENTER:
+          $ref: "#/components/schemas/Probability"
+        LOWER:
           $ref: "#/components/schemas/Probability"
     DecisionUsage:
       type: object
@@ -539,3 +659,10 @@ components:
         - SAFE
         - ANGLED
         - FAST
+    ShotTarget:
+      type: string
+      description: Intended landing zone at the human paddle; engine bounds the resulting launch angle.
+      enum:
+        - UPPER
+        - CENTER
+        - LOWER

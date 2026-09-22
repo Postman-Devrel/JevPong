@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { PongEngine } from "../../lib/game/engine";
-import { GAME } from "../../lib/game/constants";
+import { GAME, type DifficultyLevel } from "../../lib/game/constants";
 import { predictIntercept, reflectY } from "../../lib/game/prediction";
 import { createFallbackDecision } from "../../lib/agent/decision-controller";
 import type { AgentDecision } from "../../lib/agent/contracts";
+import { agentGameStateSchema } from "../../lib/agent/contracts";
 
 function advance(engine: PongEngine, seconds: number, step = 1 / 60) {
   for (let elapsed = 0; elapsed < seconds - 1e-8; elapsed += step)
     engine.update(Math.min(step, seconds - elapsed));
 }
 
-function playing() {
-  const engine = new PongEngine();
+function playing(level: DifficultyLevel = 1) {
+  const engine = new PongEngine(level);
   engine.start();
   advance(engine, 3);
   return engine;
@@ -209,7 +210,7 @@ describe("bounded model actions", () => {
     advance(engine, 0.1);
     expect(action.useBoost).toBe(false);
     expect(engine.state.paddles.ai.y).toBeCloseTo(
-      300 + GAME.aiSpeed * 0.7 * 0.1,
+      300 + engine.difficultyConfig.aiSpeed * 0.7 * 0.1,
       6,
     );
   });
@@ -298,5 +299,279 @@ describe("bounded model actions", () => {
         decision(engine, { sequence: 3, useBoostProbability: 0.9 }),
       ).useBoost,
     ).toBe(false);
+  });
+});
+
+describe("difficulty levels", () => {
+  it("publishes valid capabilities and wider reachable bounds at higher levels", () => {
+    const snapshots = ([1, 2, 3] as const).map((level) => {
+      const engine = playing(level);
+      Object.assign(engine.state.ball, {
+        x: 800,
+        y: 300,
+        vx: 330,
+        vy: 0,
+        speed: 330,
+      });
+      const snapshot = engine.createSnapshot(1, 100);
+      expect(agentGameStateSchema.safeParse(snapshot).success).toBe(true);
+      expect(snapshot.difficulty).toBe(level);
+      expect(snapshot.humanPaddle).toMatchObject({
+        height: GAME.humanPaddleHeight,
+        maxSpeed: GAME.humanSpeed,
+      });
+      expect(snapshot.capabilities).toMatchObject({
+        movementSpeed: engine.difficultyConfig.aiSpeed,
+        boostSpeed: engine.difficultyConfig.aiBoostSpeed,
+        boostDurationMs: GAME.boostDuration * 1000,
+        boostCooldownMs: GAME.boostCooldown * 1000,
+        boostCooldownRemainingMs: 0,
+        shotPlacementEnabled: level !== 1,
+        maxBallSpeed: GAME.maxBallSpeed,
+      });
+      expect(snapshot.prediction.boostReachableMinY).toBeLessThanOrEqual(
+        snapshot.prediction.reachableMinY,
+      );
+      expect(snapshot.prediction.boostReachableMaxY).toBeGreaterThanOrEqual(
+        snapshot.prediction.reachableMaxY,
+      );
+      return snapshot;
+    });
+    const widths = snapshots.map(
+      (snapshot) =>
+        snapshot.prediction.reachableMaxY - snapshot.prediction.reachableMinY,
+    );
+    expect(widths[1]).toBeGreaterThan(widths[0]);
+    expect(widths[2]).toBeGreaterThan(widths[1]);
+  });
+
+  it("defaults to level 3 and keeps the selected level when restarting", () => {
+    const engine = new PongEngine();
+    expect(engine.state.difficulty).toBe(3);
+    engine.setDifficulty(2);
+    expect(engine.state.difficulty).toBe(2);
+    expect(engine.state.phase).toBe("ready");
+    engine.start();
+    const previousMatch = engine.state.matchId;
+    engine.restart();
+    expect(engine.state.difficulty).toBe(2);
+    expect(engine.state.phase).toBe("countdown");
+    expect(engine.state.matchId).not.toBe(previousMatch);
+  });
+
+  it("does not promise a boost that is still cooling down when the decision arrives", () => {
+    const engine = playing(3);
+    towardAgent(engine);
+    engine.state.ball.x = 800;
+    engine.state.paddles.ai.boostReadyAt = engine.state.elapsed + 0.3;
+    const snapshot = engine.createSnapshot(1, 90);
+    expect(snapshot.capabilities.boostCooldownRemainingMs).toBeCloseTo(300);
+    expect(snapshot.prediction.boostReachableMinY).toBe(
+      snapshot.prediction.reachableMinY,
+    );
+    expect(snapshot.prediction.boostReachableMaxY).toBe(
+      snapshot.prediction.reachableMaxY,
+    );
+
+    engine.state.paddles.ai.boostUntil = engine.state.elapsed + 0.2;
+    const activeBoost = engine.createSnapshot(2, 90);
+    expect(activeBoost.prediction.boostReachableMinY).toBeLessThan(
+      activeBoost.prediction.reachableMinY,
+    );
+    expect(activeBoost.prediction.boostReachableMaxY).toBeGreaterThan(
+      activeBoost.prediction.reachableMaxY,
+    );
+  });
+
+  it("starts a fresh match when difficulty changes and rejects the previous match's action", () => {
+    const engine = playing(3);
+    towardAgent(engine);
+    const previous = decision(engine);
+    const previousMatch = engine.state.matchId;
+    engine.state.score.human = 3;
+    engine.setDifficulty(1);
+    expect(engine.state.matchId).not.toBe(previousMatch);
+    expect(engine.state.difficulty).toBe(1);
+    expect(engine.state.phase).toBe("ready");
+    expect(engine.state.score).toEqual({ human: 0, ai: 0 });
+    engine.start();
+    advance(engine, 3);
+    expect(engine.applyDecision(previous)).toMatchObject({
+      accepted: false,
+      reason: "stale",
+    });
+  });
+
+  it("gives each higher level greater movement and recovery for the same decision", () => {
+    const incoming: number[] = [];
+    const recovery: number[] = [];
+    for (const level of [1, 2, 3] as const) {
+      const engine = playing(level);
+      Object.assign(engine.state.ball, {
+        x: 300,
+        y: 550,
+        vx: 100,
+        vy: 0,
+        speed: 100,
+      });
+      engine.applyDecision(decision(engine));
+      advance(engine, 0.2);
+      incoming.push(engine.state.paddles.ai.y - 300);
+
+      const away = playing(level);
+      away.state.paddles.ai.y = 60;
+      Object.assign(away.state.ball, {
+        x: 700,
+        y: 300,
+        vx: -100,
+        vy: 0,
+        speed: 100,
+      });
+      away.applyDecision(decision(away));
+      advance(away, 0.2);
+      recovery.push(away.state.paddles.ai.y - 60);
+    }
+    expect(incoming[1]).toBeGreaterThan(incoming[0]);
+    expect(incoming[2]).toBeGreaterThan(incoming[1]);
+    expect(recovery[1]).toBeGreaterThan(recovery[0]);
+    expect(recovery[2]).toBeGreaterThan(recovery[1]);
+    expect(incoming[2]).toBeCloseTo(incoming[0] * 3, 6);
+  });
+
+  it("keeps a hard-mode move alive through a slow response gap, then expires it", () => {
+    const engine = playing(3);
+    engine.state.paddles.ai.y = 48;
+    Object.assign(engine.state.ball, {
+      x: 100,
+      y: 552,
+      vx: 50,
+      vy: 0,
+      speed: 50,
+    });
+    engine.applyDecision(decision(engine));
+    advance(engine, 0.65);
+    expect(engine.state.movement).toBe("DOWN");
+    expect(engine.state.paddles.ai.y).toBeGreaterThan(300);
+    advance(engine, 0.5);
+    expect(engine.state.movement).toBe("HOLD");
+    expect(engine.state.paddles.ai.y).toBeLessThan(540);
+    const stopped = engine.state.paddles.ai.y;
+    advance(engine, 0.2);
+    expect(engine.state.paddles.ai.y).toBe(stopped);
+  });
+
+  it("stops a long hard-mode action at its intercept instead of overshooting", () => {
+    const engine = playing(3);
+    Object.assign(engine.state.ball, {
+      x: 300,
+      y: 380,
+      vx: 100,
+      vy: 0,
+      speed: 100,
+    });
+    engine.applyDecision(decision(engine));
+    advance(engine, 0.7);
+    expect(engine.state.movement).toBe("HOLD");
+    expect(engine.state.paddles.ai.y).toBeGreaterThan(365);
+    expect(engine.state.paddles.ai.y).toBeLessThanOrEqual(380);
+  });
+
+  it("extends hard-mode actions for measured latency but keeps a strict maximum", () => {
+    const engine = playing(3);
+    towardAgent(engine);
+    const snapshot = engine.createSnapshot(1, 5_000);
+    const applied = engine.applyDecision(
+      decision(engine, {
+        timing: { serverMs: 0, providerMs: null, roundTripMs: 5_000 },
+      }),
+    );
+    expect(snapshot.capabilities.movementLeaseMs).toBe(1_600);
+    expect(applied.movementExpiresAt - engine.state.elapsed).toBeCloseTo(1.6);
+  });
+
+  it("clears a long action when a paddle return changes the ball's direction", () => {
+    const engine = playing(3);
+    engine.state.paddles.ai.y = 150;
+    Object.assign(engine.state.ball, {
+      x: 60,
+      y: 300,
+      vx: -330,
+      vy: 0,
+      speed: 330,
+    });
+    const action = decision(engine);
+    engine.applyDecision(action);
+    const previousDirection = engine.state.directionVersion;
+    advance(engine, 0.05);
+    expect(engine.state.directionVersion).toBeGreaterThan(previousDirection);
+    expect(engine.state.movement).toBe("HOLD");
+    expect(engine.applyDecision({ ...action, sequence: 2 }).reason).toBe(
+      "stale",
+    );
+  });
+
+  it.each(
+    ([2, 3] as const).flatMap((level) =>
+      (["FAST", "ANGLED"] as const).flatMap((returnStyle) =>
+        (["UPPER", "LOWER"] as const).map((shotTarget) => ({
+          level,
+          returnStyle,
+          shotTarget,
+        })),
+      ),
+    ),
+  )(
+    "lands level $level $returnStyle shots at $shotTarget within the physics limits",
+    ({ level, returnStyle, shotTarget }) => {
+      const engine = playing(level);
+      Object.assign(engine.state.ball, {
+        x: 900,
+        y: 300,
+        vx: GAME.maxBallSpeed,
+        vy: 0,
+        speed: GAME.maxBallSpeed,
+      });
+      const action = engine.applyDecision(
+        decision(engine, {
+          movement: "HOLD",
+          returnStyle,
+          returnStyleConfidence: 1,
+          shotTarget,
+          shotTargetConfidence: 0.95,
+        }),
+      );
+      expect(action.shotTarget).toBe(shotTarget);
+      advance(engine, 0.05);
+      expect(engine.state.ball.vx).toBeLessThan(0);
+      expect(engine.state.ball.speed).toBeLessThanOrEqual(GAME.maxBallSpeed);
+      const intercept = predictIntercept(
+        engine.state.ball,
+        GAME.humanX + GAME.paddleWidth / 2 + GAME.ballRadius,
+      ).interceptY!;
+      expect(intercept).toBeCloseTo(shotTarget === "UPPER" ? 60 : 540, 5);
+      expect(
+        Math.abs(Math.atan2(engine.state.ball.vy, -engine.state.ball.vx)),
+      ).toBeLessThanOrEqual(level === 2 ? 0.9 : 1.04);
+      expect(engine.state.shotTarget).toBeNull();
+    },
+  );
+
+  it("never gives a fallback or easy-level action aimed returns", () => {
+    for (const [level, source] of [
+      [1, "mock"],
+      [3, "fallback"],
+    ] as const) {
+      const engine = playing(level);
+      towardAgent(engine);
+      const applied = engine.applyDecision(
+        decision(engine, {
+          source,
+          shotTarget: "LOWER",
+          shotTargetConfidence: 1,
+        }),
+      );
+      expect(applied.shotTarget).toBeNull();
+      expect(engine.state.shotTarget).toBeNull();
+    }
   });
 });

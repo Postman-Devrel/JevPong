@@ -9,9 +9,10 @@ import type {
   AgentGameState,
 } from "../../lib/agent/contracts";
 import { PongEngine } from "../../lib/game/engine";
+import type { DifficultyLevel } from "../../lib/game/constants";
 
-function playing() {
-  const engine = new PongEngine();
+function playing(level: DifficultyLevel = 1) {
+  const engine = new PongEngine(level);
   engine.start();
   for (let i = 0; i < 360; i++) engine.update(1 / 120);
   Object.assign(engine.state.ball, {
@@ -252,6 +253,56 @@ describe("decision request lifecycle", () => {
     expect(
       requestDecision.mock.calls.map(([snapshot]) => snapshot.sequence),
     ).toEqual([1, 2, 3]);
+    controller.dispose();
+  });
+
+  it.each([
+    [1, 900],
+    [2, 500],
+    [3, 300],
+  ] as const)(
+    "uses the level %i recovery interval",
+    async (level, recoveryInterval) => {
+      const engine = playing(level);
+      engine.state.ball.vx = -330;
+      const requestDecision = vi.fn(async (snapshot: AgentGameState) =>
+        response(snapshot),
+      );
+      const controller = new DecisionController(engine, { requestDecision });
+      controller.update(0);
+      await flush();
+      controller.update(recoveryInterval - 1);
+      await flush();
+      expect(requestDecision).toHaveBeenCalledTimes(1);
+      controller.update(recoveryInterval);
+      await flush();
+      expect(requestDecision).toHaveBeenCalledTimes(2);
+      controller.dispose();
+    },
+  );
+
+  it("aborts an in-flight decision on a difficulty change and rejects a late response", async () => {
+    const engine = playing(3);
+    const pending = deferred<AgentDecisionResponse>();
+    let snapshot!: AgentGameState;
+    let signal!: AbortSignal;
+    const controller = new DecisionController(engine, {
+      requestDecision: (state, requestSignal) => {
+        snapshot = state;
+        signal = requestSignal;
+        return pending.promise;
+      },
+    });
+    controller.update(0);
+    await flush();
+    engine.setDifficulty(2);
+    controller.update(100);
+    expect(signal.aborted).toBe(true);
+    pending.resolve(response(snapshot));
+    await flush();
+    expect(controller.telemetry.lastApplied).toBeNull();
+    expect(controller.telemetry.rejectedCount).toBe(1);
+    expect(engine.state.movement).toBe("HOLD");
     controller.dispose();
   });
 

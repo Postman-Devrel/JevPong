@@ -1,4 +1,10 @@
-import type { AgentGameState, Movement, ReturnStyle } from "../contracts";
+import type {
+  AgentGameState,
+  Movement,
+  ReturnStyle,
+  ShotTarget,
+} from "../contracts";
+import { ACTION_POLICY, clamp } from "../../game/constants";
 import { normalizeJevResponse } from "./jev";
 import {
   delay,
@@ -91,11 +97,44 @@ export class MockProvider implements AgentProvider {
             ? "FAST"
             : "SAFE";
     const styleProbability = 0.64 + noise * 0.28;
+    const projectedHumanY = clamp(
+      state.humanPaddle.centerY + state.humanPaddle.velocityY * 0.25,
+      state.humanPaddle.height / 2,
+      state.arena.height - state.humanPaddle.height / 2,
+    );
+    const shotTarget: ShotTarget =
+      !state.capabilities.shotPlacementEnabled ||
+      state.agent.strategy === "defensive"
+        ? "CENTER"
+        : projectedHumanY <= state.arena.height / 2
+          ? "LOWER"
+          : "UPPER";
+    const timeAvailable = Math.min(
+      state.capabilities.movementLeaseMs / 1_000,
+      Math.max(
+        0,
+        ((state.prediction.timeToImpactMs ?? 0) -
+          (state.agent.smoothedLatencyMs ?? 0)) /
+          1_000,
+      ),
+    );
+    const normalSpeed =
+      state.capabilities.movementSpeed *
+      (movementConfidence < ACTION_POLICY.fullMovementConfidence
+        ? state.capabilities.cautiousSpeedScale
+        : 1);
+    const normalReach = normalSpeed * timeAvailable;
+    const boostedReach =
+      normalReach +
+      Math.max(0, state.capabilities.boostSpeed - normalSpeed) *
+        Math.min(timeAvailable, state.capabilities.boostDurationMs / 1_000);
     const needsBoost =
       state.ball.movingTowardAgent &&
       state.agentPaddle.boostReady &&
-      (state.prediction.timeToImpactMs ?? Infinity) < 450 &&
-      Math.abs(distance) > state.agentPaddle.height;
+      state.capabilities.boostCooldownRemainingMs === 0 &&
+      movementConfidence >= ACTION_POLICY.fullMovementConfidence &&
+      Math.abs(distance) - state.agentPaddle.height / 2 > normalReach &&
+      boostedReach > normalReach;
     const raw = {
       model: "jev-mock-v1",
       answers: {
@@ -120,6 +159,17 @@ export class MockProvider implements AgentProvider {
             0.6,
           ),
           confidence: 0.56 + noise * 0.35,
+        },
+        shot_target: {
+          type: "choice",
+          choice: shotTarget,
+          probabilities: distribution(
+            ["UPPER", "CENTER", "LOWER"] as const,
+            shotTarget,
+            0.7 + noise * 0.2,
+            0.5,
+          ),
+          confidence: 0.64 + noise * 0.25,
         },
         use_boost: {
           type: "noul",

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Download, Share2 } from "lucide-react";
 import Modal from "@/components/ui/Modal";
+import { DIFFICULTY_LEVELS } from "@/lib/game/constants";
 import {
   createResultCardBlob,
   downloadResultCard,
@@ -89,7 +90,7 @@ export default function ResultShareModal({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={previewUrl}
-            alt={`Match card showing ${normalizePlayerName(data.playerName)} ${data.humanScore}, Jev ${data.agentScore}`}
+            alt={`Match card showing ${normalizePlayerName(data.playerName)} ${data.humanScore}, Jev ${data.agentScore}${data.difficulty ? ` on ${DIFFICULTY_LEVELS[data.difficulty].label}` : ""}`}
           />
         ) : error ? (
           <div className="result-card-loading">

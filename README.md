@@ -2,7 +2,7 @@
 
 One paddle. First to seven. A live window into every agent decision.
 
-Jev Pong is a responsive Pong game and an observability demo for [TypeSafe Jev](https://docs.typesafe.ai/introduction). Move with a pointer, a finger, **↑ / ↓**, or **W / S**. The opponent chooses movement, return style, and whether to use a boost. Its probabilities, confidence, measured latency, and usage appear beside the match.
+Jev Pong is a responsive Pong game and an observability demo for [TypeSafe Jev](https://docs.typesafe.ai/introduction). Move with a pointer, a finger, **↑ / ↓**, or **W / S**. The opponent chooses movement, return style, shot placement, and whether to use a boost. Its probabilities, confidence, measured latency, and usage appear beside the match.
 
 **The application runs in clearly labelled mock mode by default. Official live-provider verification is pending until a real TypeSafe API key is configured and the opt-in live check is run.** Mock tokens are simulated and never counted as paid Jev usage.
 
@@ -78,7 +78,8 @@ Pricing is configured in `lib/agent/cost.ts` and server environment settings. Th
 - Move the left paddle with pointer, touch, arrow keys, or W/S. Touch control works on the player's half of the arena.
 - **Space** pauses or resumes a focused match. **R** restarts; an active match requires confirmation.
 - First to seven wins. Boosts require no extra human input: a charged human boost activates on a strong edge hit.
-- The decision monitor labels every action **JEV**, **MOCK**, or **FALLBACK**. Reduced confidence slows movement; very low confidence activates a deterministic fallback.
+- **Hard** is the default. Select **Medium** or **Easy** for a gentler opponent. Difficulty controls physical capabilities and action timing; Balanced, Aggressive, and Defensive remain separate strategy choices.
+- The decision monitor labels every action **JEV**, **MOCK**, or **FALLBACK**. Reduced confidence limits boost and slows movement at easier levels; very low confidence activates a deterministic fallback.
 - Expand the inspector to see a compact game snapshot, the normalized decision, and a redacted provider response. Explanations are templates derived from observable values, never private model reasoning.
 - Export session JSON to save aggregate metrics, score, configuration, and recent decisions. Session totals survive match restarts; a page reload starts a fresh session.
 
@@ -97,13 +98,25 @@ The authoritative state is local to the browser: this is a single-player product
 
 ### Gameplay tuning
 
-`lib/game/constants.ts` keeps the physical limits and confidence policy together. The human paddle is 120 pixels tall; the agent paddle is 96. The ball opens at 330 pixels/second, adds 18 on ordinary returns, and caps at 680. Jev moves at 150 pixels/second with a short 240-pixel/second boost; recovery toward center runs at 45% speed. These physical limits make placement matter even when a provider predicts the intercept accurately. Normal movement still comes entirely from the model. Code stops a selected move at its target, bounds it to 450 milliseconds, and never chooses the opposite movement on the model's behalf.
+`lib/game/constants.ts` keeps the physical limits, difficulty profiles, and confidence policy together. The human paddle is 120 pixels tall; the agent paddle is 96. The ball opens at 330 pixels/second, adds 18 on ordinary returns, and caps at 680. The three difficulty settings provide different movement capabilities:
 
-Live-session confidence tuning keeps Jev in control at lower certainty: movement below 18% uses deterministic fallback, 18–54% runs at 70% paddle speed with boost disabled, and 55% or higher runs at normal speed. Return style falls back to `SAFE` below 30%. Agent boost requires at least 65% boost probability, at least 55% movement confidence, available energy, and an urgent approach. These remain product-tuning values rather than TypeSafe recommendations; exported sessions should be compared when revising them.
+| Difficulty     | Normal / boost speed        | Shot placement               |
+| -------------- | --------------------------- | ---------------------------- |
+| Easy           | 150 / 240 pixels per second | Legacy contact-based returns |
+| Medium         | 300 / 480 pixels per second | Model-selected landing zone  |
+| Hard (default) | 450 / 680 pixels per second | Model-selected landing zone  |
 
-Approaching-ball decisions use the configured 250 ms cadence; travel away uses a 900 ms cadence. A serve or changed direction immediately requests fresh state, while provider `Retry-After` remains authoritative. Browser round trips use a monotonic clock sampled when the response arrives, independently of animation frames, including returned stale decisions.
+Harder settings also recover toward center faster and retain a selected movement long enough to bridge ordinary Gateway latency. Actions remain bounded by their difficulty profile's movement lease, stop on reaching the predicted intercept or recovery target, and expire when their round or ball direction becomes stale. The engine never chooses the opposite movement on the model's behalf.
 
-The deterministic playability benchmark runs the actual mock provider and controller with simulated 80, 240, and 500 ms response delays. A predictor-driven human varies center and edge placement; a second profile deliberately includes imperfect placement. All five profiles finish first-to-seven: precise play produces human wins in roughly 2.5–6 minutes, while imperfect play finishes in roughly two minutes with about 5–6 hits per rally. These synthetic checks verify pacing, bounded request rates, and match completion; they are not user research or evidence of live Jev performance. Run `npm test -- tests/unit/playability.test.ts --disableConsoleIntercept` to print the measured results.
+The `shot_target` Choice question asks Jev to select `UPPER`, `CENTER`, or `LOWER` at the human paddle, independently of movement and return style. Targets sit at 10%, 50%, and 90% of arena height; the engine maps the chosen zone to a legal launch angle. `ANGLED` returns can bank off a wall toward the chosen zone. Shot placement is confidence-gated, disabled on Easy, and never supplied as a tactical aim by fallback code. Older provider responses that omit the new answer remain usable with legacy returns; malformed supplied shot answers are rejected.
+
+Every snapshot includes the selected difficulty, human paddle height/speed, agent movement and boost speeds, confidence/recovery speed scales, boost duration/cooldown, action lease, and shot/ball limits. Normal and boosted reachable paddle-center bounds include measured latency. The movement and boost prompts explicitly use these capabilities so Jev can reason about what the selected difficulty can execute.
+
+Live-session confidence tuning keeps Jev in control at lower certainty: movement below 18% uses deterministic fallback; 18–54% disables boost and runs at 70%, 85%, or 100% paddle speed on Easy, Medium, or Hard respectively; 55% or higher runs at normal speed. Return style falls back to `SAFE` below 30%. Agent boost requires at least 65% boost probability, at least 55% movement confidence, available energy, and an urgent approach. These remain product-tuning values rather than TypeSafe recommendations; exported sessions should be compared when revising them.
+
+Approaching-ball decisions use the configured 250 ms cadence; travel away uses 900 ms on Easy, 500 ms on Medium, and 300 ms on Hard. Movement leases start at 450, 750, and 1,000 ms respectively; Medium and Hard adapt to measured latency up to 1,300 and 1,600 ms. A serve or changed direction immediately requests fresh state, while provider `Retry-After` remains authoritative. Browser round trips use a monotonic clock sampled when the response arrives, independently of animation frames, including returned stale decisions.
+
+The deterministic playability benchmark runs the actual mock provider and controller with simulated response delays. A predictor-driven human varies center and edge placement; a second profile deliberately includes imperfect placement. These synthetic checks evaluate pacing, bounded request rates, and match completion; they are not user research or evidence of live Jev performance. Run `npm test -- tests/unit/playability.test.ts --disableConsoleIntercept` to print the measured results. Validate Hard against competent players through the configured Gateway before claiming a live win rate.
 
 The official integration uses `@typesafe-ai/sdk` with an explicitly validated API base URL, a bounded timeout, an abort signal, `retry.maxRetries: 0`, and SDK logging disabled. The base URL defaults to the official TypeSafe host and can be replaced by a paired Gateway URL and credential. The SDK exposes Choice probabilities/confidence, Noul probability, returned model, and actual token usage; the adapter validates those fields before passing them to the application. Its transport caps successful responses at 64 KiB and discards upstream error details. The next fresh game snapshot is more useful than retrying an expired action, so rate-limit delays are handled between snapshots and respect `Retry-After` (including its millisecond variant).
 

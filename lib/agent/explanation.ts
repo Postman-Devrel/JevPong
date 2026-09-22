@@ -31,13 +31,22 @@ export function explainDecision(
     (a, b) => b[1] - a[1],
   );
   const vote = `${decision.movement} received ${percent(decision.movementProbabilities[decision.movement])}; ${ranked.find(([name]) => name !== decision.movement)?.[0] ?? "HOLD"} is the next option at ${percent(ranked.find(([name]) => name !== decision.movement)?.[1] ?? 0)}.`;
+  const cautiousSpeed = snapshot.capabilities.cautiousSpeedScale;
   const gate =
     decision.movementConfidence < ACTION_POLICY.fullMovementConfidence
-      ? " Code limits movement to 70% speed and disables boost."
+      ? cautiousSpeed < 1
+        ? ` Code limits movement to ${percent(cautiousSpeed)} speed and disables boost.`
+        : " Code keeps full movement speed and disables boost."
       : applied?.movement === "HOLD" && decision.movement !== "HOLD"
         ? " Code stops movement at the intercept."
         : " Code bounds movement and stops at the intercept.";
-  return `${location} ${vote}${gate}`;
+  const target = applied ? applied.shotTarget : decision.shotTarget;
+  const placement = target
+    ? ` The next return aims at the ${target.toLowerCase()} court.`
+    : decision.shotTarget
+      ? ` Jev chose the ${decision.shotTarget.toLowerCase()} court; shot placement was not applied.`
+      : "";
+  return `${location} ${vote}${gate}${placement}`;
 }
 
 export const getDecisionExplanation = explainDecision;

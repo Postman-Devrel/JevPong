@@ -4,9 +4,18 @@ import type {
   DecisionSource,
   Movement,
   ReturnStyle,
+  ShotTarget,
   Strategy,
 } from "../agent/contracts";
-import { ACTION_POLICY, clamp, GAME } from "./constants";
+import {
+  ACTION_POLICY,
+  clamp,
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY_LEVELS,
+  GAME,
+  movementLeaseMsFor,
+  type DifficultyLevel,
+} from "./constants";
 import { predictIntercept } from "./prediction";
 
 export type GamePhase =
@@ -36,6 +45,7 @@ export interface GameState {
   paddles: { human: Paddle; ai: Paddle };
   score: { human: number; ai: number };
   phase: GamePhase;
+  difficulty: DifficultyLevel;
   countdown: number;
   rally: number;
   longestRally: number;
@@ -47,6 +57,7 @@ export interface GameState {
   movement: Movement;
   movementSpeedScale: number;
   returnStyle: ReturnStyle;
+  shotTarget: ShotTarget | null;
   decisionSource: DecisionSource | null;
   pauseReason: "manual" | "hidden" | null;
   hits: { human: number; ai: number };
@@ -65,6 +76,7 @@ export interface AppliedDecision {
   accepted: boolean;
   movement: Movement;
   returnStyle: ReturnStyle;
+  shotTarget: ShotTarget | null;
   useBoost: boolean;
   source: DecisionSource;
   reason?: string;
@@ -87,8 +99,20 @@ export class PongEngine {
   private pendingServe = true;
   private lastSequence = -1;
 
-  constructor() {
+  constructor(private difficultyLevel: DifficultyLevel = DEFAULT_DIFFICULTY) {
     this.state = this.initialState();
+  }
+
+  get difficultyConfig() {
+    return DIFFICULTY_LEVELS[this.difficultyLevel];
+  }
+
+  /** A level change starts a new match identity so pending actions cannot cross levels. */
+  setDifficulty(level: DifficultyLevel): void {
+    if (![1, 2, 3].includes(level)) throw new RangeError("Unknown difficulty");
+    if (level === this.difficultyLevel) return;
+    this.difficultyLevel = level;
+    this.resetState();
   }
 
   private initialState(): GameState {
@@ -123,6 +147,7 @@ export class PongEngine {
       },
       score: { human: 0, ai: 0 },
       phase: "ready",
+      difficulty: this.difficultyLevel,
       countdown: GAME.countdownSeconds,
       rally: 0,
       longestRally: 0,
@@ -134,6 +159,7 @@ export class PongEngine {
       movement: "HOLD",
       movementSpeedScale: 1,
       returnStyle: "SAFE",
+      shotTarget: null,
       decisionSource: null,
       pauseReason: null,
       hits: { human: 0, ai: 0 },
@@ -146,14 +172,19 @@ export class PongEngine {
   }
 
   restart(): void {
+    this.resetState();
+    this.beginCountdown(true);
+  }
+
+  private resetState(): void {
     Object.assign(this.state, this.initialState());
     this.accumulator = 0;
     this.events = [];
     this.humanTarget = null;
     this.keyboardDirection = 0;
     this.lastSequence = -1;
+    this.pendingServe = true;
     this.clearAgentAction();
-    this.beginCountdown(true);
   }
 
   pause(reason: "manual" | "hidden" = "manual"): void {
@@ -207,10 +238,12 @@ export class PongEngine {
 
   applyDecision(decision: AgentDecision): AppliedDecision {
     const s = this.state;
+    const profile = this.difficultyConfig;
     const result: AppliedDecision = {
       accepted: false,
       movement: s.movement,
       returnStyle: s.returnStyle,
+      shotTarget: s.shotTarget,
       useBoost: false,
       source: decision.source,
       movementExpiresAt: this.movementExpiresAt,
@@ -239,6 +272,15 @@ export class PongEngine {
       decision.returnStyleConfidence >= ACTION_POLICY.minimumReturnConfidence
         ? decision.returnStyle
         : "SAFE";
+    const shotTarget =
+      !isFallback &&
+      profile.shotPlacementEnabled &&
+      (decision.shotTargetConfidence ?? 0) >=
+        ACTION_POLICY.minimumReturnConfidence &&
+      decision.shotTarget &&
+      ["UPPER", "CENTER", "LOWER"].includes(decision.shotTarget)
+        ? decision.shotTarget
+        : null;
     const prediction = predictIntercept(s.ball);
     this.movementStopY =
       prediction.interceptY === null
@@ -263,20 +305,24 @@ export class PongEngine {
       isFallback ||
       decision.movementConfidence >= ACTION_POLICY.fullMovementConfidence
         ? 1
-        : ACTION_POLICY.cautiousSpeedScale;
-    if (s.ball.vx <= 0) s.movementSpeedScale *= GAME.aiRecenterSpeedScale;
+        : profile.cautiousSpeedScale;
+    if (s.ball.vx <= 0) s.movementSpeedScale *= profile.aiRecenterSpeedScale;
     s.returnStyle = returnStyle;
+    s.shotTarget = shotTarget;
     s.decisionSource = decision.source;
-    this.movementExpiresAt = s.elapsed + GAME.movementLease;
-    this.returnExpiresAt = s.elapsed + GAME.returnLease;
+    const movementLease =
+      movementLeaseMsFor(profile, decision.timing.roundTripMs) / 1000;
+    this.movementExpiresAt = s.elapsed + movementLease;
+    this.returnExpiresAt =
+      s.elapsed + Math.max(GAME.returnLease, movementLease);
     const ai = s.paddles.ai;
     const distance =
       this.movementStopY === null ? 0 : Math.abs(this.movementStopY - ai.y);
     const seconds = (prediction.timeToImpactMs ?? Infinity) / 1000;
     const urgent =
       s.ball.vx > 0 &&
-      seconds < 0.65 &&
-      distance > GAME.aiSpeed * seconds * 0.75 &&
+      seconds < Math.max(0.65, profile.level === 1 ? 0 : movementLease) &&
+      distance > profile.aiSpeed * seconds * 0.75 &&
       distance > ai.height * 0.35;
     const useBoost =
       decision.source !== "fallback" &&
@@ -290,6 +336,7 @@ export class PongEngine {
       accepted: true,
       movement,
       returnStyle,
+      shotTarget,
       useBoost,
       source: decision.source,
       ...(!isFallback &&
@@ -307,16 +354,53 @@ export class PongEngine {
     strategy: Strategy = "balanced",
   ): AgentGameState {
     const s = this.state;
+    const profile = this.difficultyConfig;
     const prediction =
       s.ball.vx > 0
         ? predictIntercept(s.ball)
         : { interceptY: null, timeToImpactMs: null };
+    const movementLeaseMs = movementLeaseMsFor(profile, latencyMs);
+    const delaySeconds = Math.max(0, latencyMs ?? 0) / 1000;
+    const travelSeconds = Math.min(
+      movementLeaseMs / 1000,
+      Math.max(
+        0,
+        (prediction.timeToImpactMs ?? movementLeaseMs) / 1000 - delaySeconds,
+      ),
+    );
+    const speedScale = s.ball.vx > 0 ? 1 : profile.aiRecenterSpeedScale;
+    const normalDistance = profile.aiSpeed * speedScale * travelSeconds;
+    const cooldownRemaining = Math.max(
+      0,
+      s.paddles.ai.boostReadyAt - s.elapsed,
+    );
+    const remainingBoost = Math.max(
+      0,
+      s.paddles.ai.boostUntil - s.elapsed - delaySeconds,
+    );
+    const availableBoostSeconds = Math.min(
+      travelSeconds,
+      Math.max(
+        remainingBoost,
+        // A boost can start only when a model action arrives. A cooldown that
+        // ends later in the movement window still needs a subsequent decision.
+        cooldownRemaining <= delaySeconds ? GAME.boostDuration : 0,
+      ),
+    );
+    const boostedDistance =
+      normalDistance +
+      (profile.aiBoostSpeed - profile.aiSpeed) *
+        speedScale *
+        availableBoostSeconds;
+    const boundY = (y: number) =>
+      clamp(y, s.paddles.ai.height / 2, GAME.height - s.paddles.ai.height / 2);
     return {
       sequence,
       capturedAtMs: Math.round(s.elapsed * 1000),
       matchId: s.matchId,
       roundId: s.roundId,
       directionVersion: s.directionVersion,
+      difficulty: s.difficulty,
       arena: { width: GAME.width, height: GAME.height },
       ball: {
         x: s.ball.x,
@@ -335,9 +419,31 @@ export class PongEngine {
       humanPaddle: {
         centerY: s.paddles.human.y,
         velocityY: s.paddles.human.velocity,
+        height: s.paddles.human.height,
+        maxSpeed:
+          s.elapsed < s.paddles.human.boostUntil
+            ? GAME.humanBoostSpeed
+            : GAME.humanSpeed,
+      },
+      capabilities: {
+        movementSpeed: profile.aiSpeed,
+        boostSpeed: profile.aiBoostSpeed,
+        cautiousSpeedScale: profile.cautiousSpeedScale,
+        recenterSpeedScale: profile.aiRecenterSpeedScale,
+        boostDurationMs: GAME.boostDuration * 1000,
+        boostCooldownMs: GAME.boostCooldown * 1000,
+        boostCooldownRemainingMs: cooldownRemaining * 1000,
+        movementLeaseMs,
+        shotPlacementEnabled: profile.shotPlacementEnabled,
+        maxShotAngleRadians: profile.maxShotAngleRadians,
+        maxBallSpeed: GAME.maxBallSpeed,
       },
       prediction: {
         ...prediction,
+        reachableMinY: boundY(s.paddles.ai.y - normalDistance),
+        reachableMaxY: boundY(s.paddles.ai.y + normalDistance),
+        boostReachableMinY: boundY(s.paddles.ai.y - boostedDistance),
+        boostReachableMaxY: boundY(s.paddles.ai.y + boostedDistance),
         uncertaintyPx:
           prediction.interceptY === null
             ? 0
@@ -376,6 +482,7 @@ export class PongEngine {
     this.state.movement = "HOLD";
     this.state.movementSpeedScale = 1;
     this.state.returnStyle = "SAFE";
+    this.state.shotTarget = null;
     this.state.decisionSource = null;
     this.movementStopY = null;
     this.movementExpiresAt = 0;
@@ -437,11 +544,15 @@ export class PongEngine {
     const p = s.paddles.ai;
     const oldY = p.y;
     if (s.elapsed >= this.movementExpiresAt) s.movement = "HOLD";
-    if (s.elapsed >= this.returnExpiresAt) s.returnStyle = "SAFE";
+    if (s.elapsed >= this.returnExpiresAt) {
+      s.returnStyle = "SAFE";
+      s.shotTarget = null;
+    }
     const direction = s.movement === "UP" ? -1 : s.movement === "DOWN" ? 1 : 0;
     const speed =
-      (s.elapsed < p.boostUntil ? GAME.aiBoostSpeed : GAME.aiSpeed) *
-      s.movementSpeedScale;
+      (s.elapsed < p.boostUntil
+        ? this.difficultyConfig.aiBoostSpeed
+        : this.difficultyConfig.aiSpeed) * s.movementSpeedScale;
     let next = p.y + direction * speed * dt;
     if (this.movementStopY !== null && direction !== 0) {
       const target = this.movementStopY;
@@ -540,7 +651,8 @@ export class PongEngine {
       s.elapsed >= p.boostReadyAt;
     if (humanEdgeBoost) this.boost("human");
     const motion = clamp(
-      p.velocity / (side === "human" ? GAME.humanSpeed : GAME.aiSpeed),
+      p.velocity /
+        (side === "human" ? GAME.humanSpeed : this.difficultyConfig.aiSpeed),
       -1,
       1,
     );
@@ -558,11 +670,31 @@ export class PongEngine {
           ? -0.55
           : 0.55
         : offset;
-    const angle = clamp(
+    let angle = clamp(
       offsetWithAngle * angleScale + motion * 0.08,
       -1.04,
       1.04,
     );
+    if (side === "ai" && s.shotTarget && s.elapsed < this.returnExpiresAt) {
+      // The model selects a landing zone. Physics computes a bounded outgoing
+      // trajectory; player position never silently chooses or changes the target.
+      const targetY =
+        GAME.height *
+        (s.shotTarget === "UPPER" ? 0.1 : s.shotTarget === "LOWER" ? 0.9 : 0.5);
+      const unfoldedY =
+        style === "ANGLED" && s.shotTarget !== "CENTER"
+          ? s.shotTarget === "UPPER"
+            ? 2 * b.radius - targetY
+            : 2 * (GAME.height - b.radius) - targetY
+          : targetY;
+      const humanFace = GAME.humanX + GAME.paddleWidth / 2 + b.radius;
+      const maxAngle = this.difficultyConfig.maxShotAngleRadians;
+      angle = clamp(
+        Math.atan2(unfoldedY - b.y, b.x - humanFace),
+        -maxAngle,
+        maxAngle,
+      );
+    }
     b.speed = Math.min(
       GAME.maxBallSpeed,
       b.speed +

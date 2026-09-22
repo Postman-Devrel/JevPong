@@ -29,7 +29,12 @@ import {
   Zap,
 } from "lucide-react";
 import { PongEngine, type GameState } from "@/lib/game/engine";
-import { GAME } from "@/lib/game/constants";
+import {
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY_LEVELS,
+  GAME,
+  type DifficultyLevel,
+} from "@/lib/game/constants";
 import { DecisionController } from "@/lib/agent/decision-controller";
 import { agentPublicConfigSchema } from "@/lib/agent/contracts";
 import type {
@@ -93,12 +98,18 @@ export default function GameShell() {
   const [strategy, setStrategy] = useState<Strategy>("balanced");
   const [scenario, setScenario] = useState<MockScenario>("normal");
   const [modal, setModal] = useState<
-    "help" | "restart" | "inspect" | "share" | null
+    "help" | "restart" | "difficulty" | "inspect" | "share" | null
   >(null);
+  const [pendingDifficulty, setPendingDifficulty] = useState<{
+    level: DifficultyLevel;
+    resumeOnCancel: boolean;
+  } | null>(null);
   const [selected, setSelected] = useState<DecisionEvent | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [lastPoint, setLastPoint] = useState<"human" | "ai" | null>(null);
   const phase = view?.phase ?? "ready";
+  const difficulty = view?.difficulty ?? DEFAULT_DIFFICULTY;
+  const difficultyProfile = DIFFICULTY_LEVELS[difficulty];
   const active = phase === "playing" || phase === "countdown";
   const hasPlayerName = playerName.trim().length > 0;
   const displayPlayerName = normalizePlayerName(playerName);
@@ -113,10 +124,12 @@ export default function GameShell() {
       fallbackRate: metrics.fallbackRate,
       latencyP50Ms: metrics.latencyP50Ms,
       model: latest?.decision.model ?? config?.model ?? "Jev",
+      difficulty,
     }),
     [
       config?.model,
       displayPlayerName,
+      difficulty,
       latest?.decision.model,
       metrics.accepted,
       metrics.fallbackRate,
@@ -341,6 +354,36 @@ export default function GameShell() {
       focusCourt();
     }
   }, []);
+  const changeDifficulty = (level: DifficultyLevel, startMatch = false) => {
+    const runtime = runtimeRef.current;
+    if (!runtime) return;
+    runtime.engine.setDifficulty(level);
+    runtime.controller?.reset();
+    if (startMatch) runtime.engine.start();
+    setView(structuredClone(runtime.engine.state));
+    setLastPoint(null);
+    setLatest(null);
+    setPending(false);
+    setPendingDifficulty(null);
+    setModal(null);
+  };
+  const selectDifficulty = (level: DifficultyLevel) => {
+    const engine = runtimeRef.current?.engine;
+    if (!engine || level === engine.state.difficulty) return;
+    if (["playing", "countdown", "paused"].includes(engine.state.phase)) {
+      setPendingDifficulty({
+        level,
+        resumeOnCancel: engine.state.phase !== "paused",
+      });
+      engine.pause();
+      setModal("difficulty");
+    } else changeDifficulty(level);
+  };
+  const cancelDifficultyChange = () => {
+    if (pendingDifficulty?.resumeOnCancel) runtimeRef.current?.engine.resume();
+    setPendingDifficulty(null);
+    setModal(null);
+  };
   const showHelp = () => {
     runtimeRef.current?.engine.pause();
     setModal("help");
@@ -359,7 +402,15 @@ export default function GameShell() {
         agent: runtime.engine.state.score.ai,
       },
       runtime.engine.state.winner,
-      { match: GAME, model: config },
+      {
+        match: {
+          ...GAME,
+          ...runtime.engine.difficultyConfig,
+          difficulty: runtime.engine.state.difficulty,
+          difficultyProfile: runtime.engine.difficultyConfig,
+        },
+        model: config,
+      },
     );
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
@@ -462,6 +513,44 @@ export default function GameShell() {
 
         <div className="game-layout">
           <section className="game-column" aria-label="Pong game">
+            <div className="difficulty-panel">
+              <div className="difficulty-heading">
+                <span className="eyebrow" id="difficulty-label">
+                  JEV DIFFICULTY
+                </span>
+                <span className="difficulty-default">YOUR CALL.</span>
+              </div>
+              <div
+                className="difficulty-options"
+                role="group"
+                aria-labelledby="difficulty-label"
+                aria-describedby="difficulty-description"
+              >
+                {([1, 2, 3] as const).map((level) => {
+                  const profile = DIFFICULTY_LEVELS[level];
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      aria-label={profile.label}
+                      aria-pressed={difficulty === level}
+                      onClick={() => selectDifficulty(level)}
+                    >
+                      <strong>{profile.label}</strong>
+                      <span className="difficulty-indicator" aria-hidden="true">
+                        {[1, 2, 3].map((step) => (
+                          <i
+                            key={step}
+                            className={step <= level ? "filled" : ""}
+                          />
+                        ))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p id="difficulty-description">{difficultyProfile.description}</p>
+            </div>
             <div className="arena-panel panel" ref={courtRef}>
               <div className="panel-heading arena-heading">
                 <div>
@@ -549,12 +638,8 @@ export default function GameShell() {
                         )}
                       </span>
                     </b>
-                    <span>
-                      {!config
-                        ? "Connecting…"
-                        : config.provider === "jev"
-                          ? "TypeSafe agent"
-                          : "Practice opponent"}
+                    <span className="active-difficulty">
+                      {difficultyProfile.label}
                     </span>
                   </div>
                   <span className="player-symbol ai-symbol" />
@@ -687,6 +772,8 @@ export default function GameShell() {
                         : `${hasPlayerName ? displayPlayerName : "Jev"}${hasPlayerName ? ", Jev takes this one." : " takes this one."}`}
                     </h2>
                     <p>
+                      {difficultyProfile.label}
+                      <br />
                       Best rally: {view?.longestRally ?? 0} hits ·{" "}
                       {metrics.accepted} decisions this session
                     </p>
@@ -818,6 +905,11 @@ export default function GameShell() {
               view?.phase === "playing"
                 ? view.movement
                 : latest?.appliedAction?.movement
+            }
+            currentShotTarget={
+              view?.phase === "playing"
+                ? view.shotTarget
+                : latest?.appliedAction?.shotTarget
             }
             onInspect={() => inspect()}
           />
@@ -1037,6 +1129,15 @@ export default function GameShell() {
                 extra pace. No extra buttons.
               </p>
             </div>
+            <div>
+              <Gamepad2 size={23} />
+              <h3>Choose your challenge</h3>
+              <p>
+                Start on Hard for Jev’s toughest game, or choose Medium or Easy
+                above the court. Changing difficulty during a match starts a
+                fresh score. Agent style is a separate choice.
+              </p>
+            </div>
           </div>
           <div className="honesty-note">
             <b>A game you can look inside.</b>
@@ -1097,6 +1198,33 @@ export default function GameShell() {
           </div>
         </Modal>
       )}
+      {modal === "difficulty" && pendingDifficulty && (
+        <Modal title="Change difficulty?" onClose={cancelDifficultyChange}>
+          <p className="modal-description">
+            Start a new match on{" "}
+            {DIFFICULTY_LEVELS[pendingDifficulty.level].label}? This resets the
+            current score. Your session’s decision history stays available.
+          </p>
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              onClick={cancelDifficultyChange}
+            >
+              Keep this match
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => {
+                changeDifficulty(pendingDifficulty.level, true);
+                focusCourt();
+              }}
+            >
+              <RotateCcw size={16} /> Restart on{" "}
+              {DIFFICULTY_LEVELS[pendingDifficulty.level].label}
+            </button>
+          </div>
+        </Modal>
+      )}
       {modal === "inspect" && (
         <RawInspector event={selected} onClose={() => setModal(null)} />
       )}
@@ -1112,6 +1240,7 @@ export default function GameShell() {
           ? `${view?.winner === "human" ? "You win" : "Jev wins"}.`
           : ""}{" "}
         Score: You {view?.score.human ?? 0}, Jev {view?.score.ai ?? 0}.
+        Difficulty: {difficultyProfile.label}.
       </div>
     </div>
   );

@@ -25,7 +25,7 @@ export const JEV_QUESTIONS = Object.freeze({
   movement: {
     type: "choice",
     instructions:
-      "Which movement gives the agent the best chance of intercepting the ball while avoiding unnecessary movement? The agent is the right paddle. Coordinates are logical pixels, with y increasing downward and velocities in pixels per second. The predicted intercept includes wall reflections. Consider the prediction, paddle height, motion, and measured latency. When the ball travels away, favor recovering toward the arena center.",
+      "Which movement gives the agent the best chance of intercepting the ball while avoiding unnecessary movement? The agent is the right paddle. Coordinates are logical pixels, with y increasing downward and velocities in pixels per second. The predicted intercept includes wall reflections. Use capabilities.movementSpeed, cautiousSpeedScale, recenterSpeedScale, movementLeaseMs, paddle height, and agent.smoothedLatencyMs to judge how far a selected action can move before impact. Prediction reachableMinY/reachableMaxY and boostReachableMinY/boostReachableMaxY are paddle-center bounds that already account for latency; do not subtract latency again from those bounds. Move toward an approaching intercept even if it is outside normal reach, considering boost separately. The engine stops the selected direction at its target or lease expiry and never reverses it automatically. When the ball travels away, favor recovering toward the arena center at the supplied recenter speed.",
     criteria: {
       UP: "Move the paddle upward for the next action window.",
       DOWN: "Move the paddle downward for the next action window.",
@@ -43,10 +43,20 @@ export const JEV_QUESTIONS = Object.freeze({
       FAST: "Attempt a faster return to put the opponent under immediate pressure.",
     },
   },
+  shot_target: {
+    type: "choice",
+    instructions:
+      "Where should the next return land at the HUMAN left paddle? Choose an intended landing zone, not the agent's paddle position or its movement direction. Use the human paddle center, height, velocity, and maxSpeed to aim toward open space or behind its current motion, considering the agent strategy. The engine turns this zone into a bounded launch angle, accounting for wall reflections; capabilities.maxShotAngleRadians and maxBallSpeed limit what is achievable. Prefer reliable placement for defensive strategy and pressure for aggressive strategy. If capabilities.shotPlacementEnabled is false, choose CENTER. Evaluate independently of movement and return style.",
+    criteria: {
+      UPPER: "Aim for the upper landing zone at the human paddle.",
+      CENTER: "Aim for the center landing zone at the human paddle.",
+      LOWER: "Aim for the lower landing zone at the human paddle.",
+    },
+  },
   use_boost: {
     type: "noul",
     instructions:
-      "Given the complete state, should the agent spend its boost on the next eligible movement action? A boost briefly increases paddle movement speed. Consider whether boost is ready, the distance to intercept, time to impact, and uncertainty.",
+      "Given the complete state, should the agent spend its boost on the next eligible movement action? Compare capabilities.movementSpeed with boostSpeed, boostDurationMs, boostCooldownRemainingMs, and boostCooldownMs. Use paddle height and timeToImpactMs minus agent.smoothedLatencyMs to estimate whether normal movement can reach the intercept and whether the boost improves that reach. The supplied prediction reachable and boostReachable bounds already account for latency; do not subtract latency twice. Consider capabilities.movementLeaseMs, cautiousSpeedScale, prediction uncertainty, and agentPaddle.boostReady. Conserve boost when normal movement suffices or the cooldown is active.",
     criteria: {
       true: "Boost is ready and extra movement speed is needed to intercept the approaching ball.",
       false:
@@ -72,6 +82,14 @@ const returnAnswer = z.object({
     .object({ SAFE: probability, ANGLED: probability, FAST: probability })
     .strict(),
 });
+const shotTargetAnswer = z.object({
+  type: z.literal("choice"),
+  choice: z.enum(["UPPER", "CENTER", "LOWER"]),
+  confidence: probability,
+  probabilities: z
+    .object({ UPPER: probability, CENTER: probability, LOWER: probability })
+    .strict(),
+});
 export const typeSafeResponseSchema = z.object({
   model: z
     .string()
@@ -81,6 +99,8 @@ export const typeSafeResponseSchema = z.object({
   answers: z.object({
     movement: movementAnswer,
     return_style: returnAnswer,
+    // Older saved/provider responses remain usable, but a present answer must be complete.
+    shot_target: shotTargetAnswer.optional(),
     use_boost: z.object({ type: z.literal("noul"), noul: probability }),
   }),
   usage: z.object({
@@ -110,8 +130,17 @@ export function normalizeJevResponse(
   const parsed = typeSafeResponseSchema.safeParse(raw);
   if (!parsed.success) throw new ProviderError("invalid_response");
   const response = parsed.data;
-  const { movement, return_style: style, use_boost: boost } = response.answers;
-  if (!validDistribution(movement) || !validDistribution(style))
+  const {
+    movement,
+    return_style: style,
+    shot_target: shot,
+    use_boost: boost,
+  } = response.answers;
+  if (
+    !validDistribution(movement) ||
+    !validDistribution(style) ||
+    (shot && !validDistribution(shot))
+  )
     throw new ProviderError("invalid_response");
   const decision: AgentDecision = {
     ...decisionIdentity(state, requestId),
@@ -121,6 +150,13 @@ export function normalizeJevResponse(
     returnStyle: style.choice,
     returnStyleProbabilities: style.probabilities,
     returnStyleConfidence: style.confidence,
+    ...(shot
+      ? {
+          shotTarget: shot.choice,
+          shotTargetProbabilities: shot.probabilities,
+          shotTargetConfidence: shot.confidence,
+        }
+      : {}),
     useBoostProbability: boost.noul,
     model: response.model,
     usage: {
