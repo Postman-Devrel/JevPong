@@ -571,24 +571,14 @@ export default function GameShell() {
             <span>How to play</span>
           </button>
           <a
-            className="header-attribution fabric-attribution"
-            href="https://app.fabricgateway.ai?utm_source=jevpong"
+            className="header-attribution typesafe-attribution"
+            href="https://typesafe.ai"
             target="_blank"
             rel="noreferrer"
           >
             <span>Powered by</span>
-            <b>Fabric Gateway</b>
+            <b>TypeSafe</b>
             <ArrowUpRight size={13} />
-          </a>
-          <a
-            className="header-attribution github-attribution"
-            href="https://github.com/Postman-Devrel/JevPong"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Jev Pong on GitHub"
-          >
-            <GitHubMark size={17} />
-            <b>GitHub</b>
           </a>
         </div>
       </header>
@@ -1219,8 +1209,24 @@ export default function GameShell() {
       <footer className="site-footer">
         <span>BUILT TO PLAY. MADE TO SHOW WHAT’S POSSIBLE.</span>
         <nav className="footer-links" aria-label="Project links">
-          <a href="https://typesafe.ai" target="_blank" rel="noreferrer">
-            Powered by <b>TypeSafe</b>
+          <a
+            className="fabric-attribution"
+            href="https://app.fabricgateway.ai?utm_source=jevpong"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Powered by <b>Postman Fabric Gateway</b>
+            <ArrowUpRight size={13} />
+          </a>
+          <a
+            className="github-attribution"
+            href="https://github.com/Postman-Devrel/JevPong"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Jev Pong on GitHub"
+          >
+            <GitHubMark size={14} />
+            <b>GitHub</b>
             <ArrowUpRight size={13} />
           </a>
         </nav>

@@ -548,14 +548,12 @@ svg {
   font-weight: 650;
   white-space: nowrap;
 }
-.header-links .fabric-attribution {
+.header-links .typesafe-attribution {
   border-color: color-mix(in srgb, var(--green) 35%, var(--line));
 }
+.typesafe-attribution b,
 .fabric-attribution b {
   color: var(--green);
-}
-.header-links .github-attribution {
-  gap: 7px;
 }
 .github-attribution > svg {
   display: block;
@@ -2572,12 +2570,6 @@ select {
   }
   .header-links {
     gap: 7px;
-  }
-  .header-links .github-attribution b {
-    display: none;
-  }
-  .header-links .github-attribution {
-    padding-inline: 8px;
   }
   .brand {
     font-size: 24px;
