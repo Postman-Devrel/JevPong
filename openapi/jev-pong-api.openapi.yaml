@@ -10,7 +10,154 @@ servers:
     description: Local development
 tags:
   - name: Agent
+  - name: Leaderboard
 paths:
+  /api/leaderboard:
+    get:
+      tags: [Leaderboard]
+      operationId: getLeaderboard
+      summary: Get fastest completed matches and the current browser's personal best
+      description: Community leaderboard of browser-reported results. Not server-verified anti-cheat. The optional jev_player cookie identifies a personal best.
+      parameters:
+        - name: difficulty
+          in: query
+          schema: { type: integer, enum: [1, 2, 3], default: 3 }
+      responses:
+        "200":
+          description: Top 20 and personal best, if known.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Leaderboard" }
+        default:
+          description: Invalid request, origin rejection, rate limit, or unavailable storage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequestError" }
+  /api/leaderboard/start:
+    post:
+      tags: [Leaderboard]
+      operationId: startLeaderboardMatch
+      summary: Log a match start and issue a signed result ticket
+      description: Sets a signed HttpOnly jev_player cookie if absent. Reuse that cookie when finishing. Google credentials remain on the server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [clientMatchId, playerName, difficulty, strategy]
+              properties:
+                clientMatchId:
+                  {
+                    type: string,
+                    minLength: 1,
+                    maxLength: 100,
+                    pattern: "^[a-zA-Z0-9-]+$",
+                  }
+                playerName:
+                  type: string
+                  minLength: 1
+                  maxLength: 18
+                  description: Start with a Unicode letter or number. Remaining characters may also be spaces, underscores, periods, apostrophes or hyphens.
+                difficulty: { type: integer, enum: [1, 2, 3] }
+                strategy:
+                  { type: string, enum: [balanced, aggressive, defensive] }
+      responses:
+        "200":
+          description: Match registered. Preserve Set-Cookie for the finish request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, matchId]
+                properties:
+                  ticket: { type: string }
+                  matchId: { type: string }
+        default:
+          description: Invalid request, origin rejection, rate limit, or unavailable storage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequestError" }
+  /api/leaderboard/finish:
+    post:
+      tags: [Leaderboard]
+      operationId: finishLeaderboardMatch
+      summary: Save one completed match and return its leaderboard position
+      description: A signed start ticket and matching browser cookie are required. Identical retries are safe; conflicting result replacement returns 409. A valid completed match ranks when live Fabric/Jev decisions are at least 70% of live plus fallback plus mock decisions. Exactly 70% qualifies; winner and strategy do not affect eligibility. Exactly one score must be 7 and the other below 7.
+      security:
+        - PlayerCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                [
+                  ticket,
+                  durationMs,
+                  humanScore,
+                  aiScore,
+                  liveDecisions,
+                  fallbackDecisions,
+                  mockDecisions,
+                  strategyChanged,
+                ]
+              properties:
+                ticket: { type: string, minLength: 1, maxLength: 3000 }
+                durationMs: { type: integer, minimum: 1, maximum: 7200000 }
+                humanScore: { type: integer, minimum: 0, maximum: 7 }
+                aiScore: { type: integer, minimum: 0, maximum: 7 }
+                liveDecisions: { type: integer, minimum: 0, maximum: 100000 }
+                fallbackDecisions:
+                  { type: integer, minimum: 0, maximum: 100000 }
+                mockDecisions: { type: integer, minimum: 0, maximum: 100000 }
+                strategyChanged: { type: boolean }
+      responses:
+        "200":
+          description: Saved result and refreshed board. Rank is nullable only when a result is hidden from the public board.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  [
+                    matchId,
+                    ranked,
+                    reason,
+                    rank,
+                    personalBest,
+                    durationMs,
+                    board,
+                  ]
+                properties:
+                  matchId: { type: string }
+                  ranked: { type: boolean }
+                  reason:
+                    type: string
+                    nullable: true
+                    enum:
+                      [
+                        loss,
+                        practice,
+                        fallback,
+                        strategy,
+                        no_live_decisions,
+                        insufficient_live_decisions,
+                        hidden,
+                        null,
+                      ]
+                  rank: { type: integer, minimum: 1, nullable: true }
+                  personalBest: { type: boolean }
+                  durationMs: { type: integer, minimum: 1 }
+                  board: { $ref: "#/components/schemas/Leaderboard" }
+        default:
+          description: Invalid or expired ticket, mismatched identity, invalid result, conflict, origin rejection, rate limit, or unavailable storage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequestError" }
   /api/agent/config:
     get:
       tags:
@@ -103,7 +250,49 @@ paths:
               example:
                 error: unsupported_media_type
 components:
+  securitySchemes:
+    PlayerCookie:
+      type: apiKey
+      in: cookie
+      name: jev_player
+      description: Signed anonymous browser identity issued by the start endpoint. Not Google or Jev authentication.
   schemas:
+    Leaderboard:
+      type: object
+      required: [difficulty, entries, totalPlayers, personalBest, updatedAt]
+      properties:
+        difficulty: { type: integer, enum: [1, 2, 3] }
+        entries:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/LeaderboardEntry" }
+        totalPlayers: { type: integer, minimum: 0 }
+        personalBest:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LeaderboardEntry"
+        updatedAt: { type: string, format: date-time }
+    LeaderboardEntry:
+      type: object
+      required:
+        [
+          matchId,
+          playerName,
+          rank,
+          durationMs,
+          humanScore,
+          aiScore,
+          completedAt,
+        ]
+      properties:
+        matchId: { type: string }
+        playerName: { type: string, maxLength: 18 }
+        rank: { type: integer, minimum: 1 }
+        durationMs: { type: integer, minimum: 1 }
+        humanScore: { type: integer, minimum: 0, maximum: 7 }
+        aiScore: { type: integer, minimum: 0, maximum: 7 }
+        completedAt: { type: string, format: date-time }
     AgentPublicConfig:
       type: object
       required:

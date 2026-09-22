@@ -49,6 +49,13 @@ async function setup(page: Page, options: { malformedConfig?: boolean } = {}) {
   let fallback = false;
   let validConfiguration = !options.malformedConfig;
   let configRequests = 0;
+  // Never touch a configured live leaderboard during browser tests.
+  await page.route("**/api/leaderboard**", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: "leaderboard_not_configured" },
+    }),
+  );
   await page.route("**/api/agent/config", (route) => {
     configRequests += 1;
     return route.fulfill({ json: validConfiguration ? CONFIG : {} });
@@ -361,6 +368,47 @@ test("finishes a first-to-seven match and restarts without reloading", async ({
   page,
 }) => {
   const { states } = await setup(page);
+  let finishedBody: Record<string, unknown> | null = null;
+  let saveCalls = 0;
+  await page.route("**/api/leaderboard/start", (route) =>
+    route.fulfill({
+      json: { ticket: "browser-test-ticket", matchId: "browser-test-match" },
+    }),
+  );
+  await page.route("**/api/leaderboard/finish", (route) => {
+    saveCalls++;
+    finishedBody = route.request().postDataJSON();
+    if (saveCalls === 1)
+      return route.fulfill({
+        status: 503,
+        json: { error: "leaderboard_unavailable" },
+      });
+    return route.fulfill({
+      json: {
+        matchId: "browser-test-match",
+        ranked: true,
+        reason: null,
+        rank: 12,
+        personalBest: true,
+        durationMs: finishedBody!.durationMs,
+        board: {
+          difficulty: 3,
+          entries: [],
+          totalPlayers: 84,
+          personalBest: {
+            matchId: "browser-test-match",
+            playerName: "Ada Lovelace",
+            rank: 12,
+            durationMs: finishedBody!.durationMs,
+            humanScore: 7,
+            aiScore: 4,
+            completedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+  });
   await page.getByLabel("Player name").fill("Ada Lovelace");
   await start(page, states);
   // Deliberately miss serves using the same pointer control as a visitor.
@@ -380,11 +428,27 @@ test("finishes a first-to-seven match and restarts without reloading", async ({
     "aria-label",
     /(?:Ada Lovelace 7, Jev [0-6]|Ada Lovelace [0-6], Jev 7)/,
   );
+  await expect(page.getByRole("button", { name: "Retry save" })).toBeVisible();
+  const firstSubmission = JSON.stringify(finishedBody);
+  await page.getByRole("button", { name: "Retry save" }).click();
+  await expect(page.locator(".leaderboard-result")).toContainText(
+    "#12 on Hard",
+  );
+  expect(saveCalls).toBe(2);
+  expect(JSON.stringify(finishedBody)).toBe(firstSubmission);
+  expect(finishedBody).toMatchObject({
+    ticket: "browser-test-ticket",
+    liveDecisions: 0,
+    fallbackDecisions: 0,
+    strategyChanged: false,
+  });
   await page.getByRole("button", { name: "Share your result" }).click();
   await expect(
     page.getByRole("heading", { name: "Your match receipt" }),
   ).toBeVisible();
-  await expect(page.getByAltText(/Ada Lovelace .* Jev/)).toBeVisible();
+  await expect(
+    page.getByAltText(/Ada Lovelace .* current hard rank: #12/i),
+  ).toBeVisible();
   const cardDownloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download PNG" }).click();
   const cardDownload = await cardDownloadPromise;
@@ -408,6 +472,64 @@ test("finishes a first-to-seven match and restarts without reloading", async ({
     "aria-label",
     "Score: Ada Lovelace 0, Jev 0",
   );
+});
+
+test("shows the public leaderboard by level, including your best outside the top entries", async ({
+  page,
+}) => {
+  await setup(page);
+  const entry = {
+    matchId: "public-match",
+    playerName: "Ada Lovelace",
+    rank: 1,
+    durationMs: 55430,
+    humanScore: 7,
+    aiScore: 2,
+    completedAt: "2026-09-22T12:00:00.000Z",
+  };
+  await page.route("**/api/leaderboard?*", (route) => {
+    const difficulty = Number(
+      new URL(route.request().url()).searchParams.get("difficulty"),
+    );
+    return route.fulfill({
+      json: {
+        difficulty,
+        entries: difficulty === 1 ? [] : [entry],
+        totalPlayers: difficulty === 1 ? 0 : 25,
+        personalBest:
+          difficulty === 1
+            ? null
+            : {
+                ...entry,
+                matchId: "your-match",
+                playerName: "Your nickname",
+                rank: 25,
+                durationMs: 85430,
+              },
+        updatedAt: entry.completedAt,
+      },
+    });
+  });
+  await page.getByRole("link", { name: "Leaderboard", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh leaderboard" }).click();
+  const board = page.getByRole("region", { name: "Who finishes fastest?" });
+  await expect(board).toContainText("Ada Lovelace");
+  await expect(board).toContainText("0:55.43");
+  await expect(board).toContainText("#25");
+  await page.getByRole("button", { name: "Easy leaderboard" }).click();
+  await expect(board).toContainText("No completed matches on Easy yet");
+  await page.getByRole("button", { name: "Medium leaderboard" }).click();
+  await expect(board).toContainText("Your best on Medium");
+  await expect(board).toContainText("1:25.43");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: `/private/tmp/jev-leaderboard-${test.info().project.name}.png`,
+    fullPage: true,
+  });
 });
 
 test("touch dragging controls the paddle on a narrow viewport", async ({

@@ -1,5 +1,9 @@
 # Jev Pong
 
+## Public leaderboard
+
+Easy, Medium, and Hard each have a fastest-match leaderboard backed by a private Google Sheet. A completed match ranks when live Fabric/Jev decisions are at least 70% of all recorded decisions. Losses, every strategy, strategy changes, and fallback play are allowed; only each player's fastest qualifying result per level is listed. See [setup, ranking rules, and launch limitations](docs/leaderboard.md). This initial anonymous community board has basic validation, not server-verified anti-cheat.
+
 One paddle. First to seven. A live window into every agent decision.
 
 Jev Pong is a responsive Pong game and an observability demo for [TypeSafe Jev](https://docs.typesafe.ai/introduction). Move with a pointer, a finger, **↑ / ↓**, or **W / S**. The opponent chooses movement, return style, shot placement, and whether to use a boost. Its probabilities, confidence, measured latency, and usage appear beside the match.
@@ -112,7 +116,7 @@ The `shot_target` Choice question asks Jev to select `UPPER`, `CENTER`, or `LOWE
 
 Every snapshot includes the selected difficulty, human paddle height/speed, agent movement and boost speeds, confidence/recovery speed scales, boost duration/cooldown, action lease, and shot/ball limits. Normal and boosted reachable paddle-center bounds include measured latency. The movement and boost prompts explicitly use these capabilities so Jev can reason about what the selected difficulty can execute.
 
-Live-session confidence tuning keeps Jev in control at lower certainty: movement below 18% uses deterministic fallback; 18–54% disables boost and runs at 70%, 85%, or 100% paddle speed on Easy, Medium, or Hard respectively; 55% or higher runs at normal speed. Return style falls back to `SAFE` below 30%. Agent boost requires at least 65% boost probability, at least 55% movement confidence, available energy, and an urgent approach. These remain product-tuning values rather than TypeSafe recommendations; exported sessions should be compared when revising them.
+Live-session confidence tuning keeps Jev in control at lower certainty: movement below 5% uses deterministic fallback; 5–54% disables boost and runs at 70%, 85%, or 100% paddle speed on Easy, Medium, or Hard respectively; 55% or higher runs at normal speed. Return style falls back to `SAFE` below 30%. Agent boost requires at least 65% boost probability, at least 55% movement confidence, available energy, and an urgent approach. These remain product-tuning values rather than TypeSafe recommendations; exported sessions should be compared when revising them.
 
 Approaching-ball decisions use the configured 250 ms cadence; travel away uses 900 ms on Easy, 500 ms on Medium, and 300 ms on Hard. Movement leases start at 450, 750, and 1,000 ms respectively; Medium and Hard adapt to measured latency up to 1,300 and 1,600 ms. A serve or changed direction immediately requests fresh state, while provider `Retry-After` remains authoritative. Browser round trips use a monotonic clock sampled when the response arrives, independently of animation frames, including returned stale decisions.
 

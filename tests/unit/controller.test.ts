@@ -138,7 +138,7 @@ describe("decision request lifecycle", () => {
         Object.assign(value.decision, {
           source: "jev",
           movement: "UP",
-          movementConfidence: 0.1,
+          movementConfidence: 0.049,
           usage: { inputTokens: 81, outputTokens: 23 },
         });
         return value;
@@ -155,6 +155,27 @@ describe("decision request lifecycle", () => {
     });
     expect(controller.telemetry.lastApplied?.movement).toBe("DOWN");
     expect(controller.telemetry.lastApplied?.returnStyle).toBe("SAFE");
+    controller.dispose();
+  });
+
+  it("accepts movement confidence at the fallback boundary", async () => {
+    const engine = playing();
+    const controller = new DecisionController(engine, {
+      requestDecision: async (snapshot) => {
+        const value = response(snapshot);
+        Object.assign(value.decision, {
+          source: "jev",
+          movement: "UP",
+          movementConfidence: 0.05,
+          fallbackReason: undefined,
+        });
+        return value;
+      },
+    });
+    controller.update(0);
+    await flush();
+    expect(controller.telemetry.lastDecision?.source).toBe("jev");
+    expect(controller.telemetry.lastDecision?.fallbackReason).toBeUndefined();
     controller.dispose();
   });
 

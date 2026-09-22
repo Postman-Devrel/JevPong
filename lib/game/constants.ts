@@ -23,7 +23,7 @@ export const GAME = {
 /** Shared action gates. Each difficulty profile defines its own speed and timing. */
 export const ACTION_POLICY = {
   fullMovementConfidence: 0.55,
-  minimumMovementConfidence: 0.18,
+  minimumMovementConfidence: 0.05,
   minimumReturnConfidence: 0.3,
   boostProbability: 0.65,
   decisionIntervalMs: 250,

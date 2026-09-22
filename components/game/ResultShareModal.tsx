@@ -9,6 +9,7 @@ import {
   downloadResultCard,
   normalizePlayerName,
   resultFilename,
+  resultLeaderboardSummary,
   resultShareText,
   type ResultCardData,
 } from "@/lib/share/result-card";
@@ -26,6 +27,7 @@ export default function ResultShareModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const leaderboard = resultLeaderboardSummary(data);
 
   useEffect(() => {
     let active = true;
@@ -82,7 +84,8 @@ export default function ResultShareModal({
     <Modal title="Your match receipt" onClose={onClose} wide>
       <p className="modal-description share-description">
         {normalizePlayerName(data.playerName)} vs. Jev. The score and session
-        metrics come directly from this match.
+        metrics come directly from this match. {leaderboard.label}:{" "}
+        {leaderboard.value.toLowerCase()}.
       </p>
       <div className="result-card-preview" aria-live="polite">
         {previewUrl ? (
@@ -90,7 +93,7 @@ export default function ResultShareModal({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={previewUrl}
-            alt={`Match card showing ${normalizePlayerName(data.playerName)} ${data.humanScore}, Jev ${data.agentScore}${data.difficulty ? ` on ${DIFFICULTY_LEVELS[data.difficulty].label}` : ""}`}
+            alt={`Match card showing ${normalizePlayerName(data.playerName)} ${data.humanScore}, Jev ${data.agentScore}${data.difficulty ? ` on ${DIFFICULTY_LEVELS[data.difficulty].label}` : ""}; ${leaderboard.label.toLowerCase()}: ${leaderboard.value.toLowerCase()}`}
           />
         ) : error ? (
           <div className="result-card-loading">
@@ -101,7 +104,8 @@ export default function ResultShareModal({
         )}
       </div>
       <div className="share-note">
-        Your name appears only on the image you choose to download or share.
+        The receipt shows your current personal-best position for this level
+        when the leaderboard is available.
       </div>
       <div className="share-actions">
         <button

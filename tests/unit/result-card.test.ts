@@ -3,6 +3,7 @@ import {
   normalizePlayerName,
   resultFilename,
   resultHeadline,
+  resultLeaderboardSummary,
   resultShareText,
   type ResultCardData,
 } from "../../lib/share/result-card";
@@ -45,5 +46,47 @@ describe("shareable result card data", () => {
     expect(resultFilename(hardResult)).toBe(
       "jev-pong-ada-lovelace-7-4-hard.png",
     );
+  });
+
+  it("uses the retained personal best as the current leaderboard rank", () => {
+    const ranked = {
+      ...result,
+      difficulty: 2 as const,
+      leaderboard: {
+        status: "ranked" as const,
+        rank: 12,
+        durationMs: 65_430,
+        totalPlayers: 84,
+        reason: null,
+      },
+    };
+    expect(resultLeaderboardSummary(ranked)).toEqual({
+      label: "CURRENT MEDIUM RANK",
+      value: "#12",
+      detail: "PERSONAL BEST 1:05.43  /  84 PLAYERS",
+    });
+    expect(resultShareText(ranked)).toBe(
+      "Ada Lovelace beat Jev 7–4 on Medium. Current rank: #12 with a 1:05.43 personal best. Can you beat the machine?",
+    );
+  });
+
+  it("explains why a match has no qualifying rank", () => {
+    expect(
+      resultLeaderboardSummary({
+        ...result,
+        difficulty: 1,
+        leaderboard: {
+          status: "unranked",
+          rank: null,
+          durationMs: null,
+          totalPlayers: 20,
+          reason: "fallback",
+        },
+      }),
+    ).toEqual({
+      label: "EASY LEADERBOARD",
+      value: "NOT RANKED",
+      detail: "FALLBACK PLAY",
+    });
   });
 });

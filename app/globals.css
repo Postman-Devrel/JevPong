@@ -92,6 +92,217 @@ svg {
   margin: 0 auto;
   padding: 0 48px;
 }
+.match-timer {
+  color: var(--green);
+  font: 11px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.difficulty-panel > .leaderboard-notice {
+  max-width: 680px;
+  font: 10px/1.6 var(--sans);
+  color: var(--muted);
+}
+.leaderboard-notice a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.leaderboard-section {
+  margin: 42px 0;
+  padding: 28px 30px 20px;
+  scroll-margin-top: 24px;
+}
+.leaderboard-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.leaderboard-heading h2 {
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -1px;
+  margin: 9px 0;
+}
+.leaderboard-heading p {
+  color: var(--muted);
+  margin: 0;
+  font-size: 12px;
+}
+.leaderboard-levels {
+  display: flex;
+  gap: 5px;
+  margin: 24px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+.leaderboard-levels button {
+  padding: 13px 23px;
+  min-height: 44px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.leaderboard-levels button[aria-pressed="true"] {
+  border-color: var(--green);
+  color: var(--green);
+}
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 15px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.leaderboard-table thead {
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+}
+.leaderboard-table thead th {
+  font-weight: 400;
+}
+.leaderboard-table tbody th {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.leaderboard-table td {
+  font: 13px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.leaderboard-table td:nth-child(3) {
+  font-size: 19px;
+  letter-spacing: -0.6px;
+  white-space: nowrap;
+}
+.leaderboard-table td:last-child,
+.leaderboard-table thead th:last-child {
+  text-align: right;
+  color: var(--muted);
+}
+.leaderboard-table tbody tr:first-child td:nth-child(3) {
+  color: var(--green);
+}
+.leaderboard-table .is-you {
+  background: var(--surface-raised);
+}
+.leaderboard-you {
+  color: var(--green);
+  font: 9px var(--mono);
+  margin-left: 10px;
+}
+.leaderboard-empty {
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.leaderboard-personal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 12px;
+  color: var(--green);
+  border-bottom: 1px solid var(--line);
+}
+.leaderboard-personal > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.leaderboard-personal strong {
+  font: 17px var(--mono);
+}
+.leaderboard-personal strong span {
+  margin-left: 16px;
+}
+.leaderboard-rules {
+  max-width: 830px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.leaderboard-rules p {
+  margin: 12px 0;
+}
+.leaderboard-rules > span {
+  font: 9px var(--mono);
+}
+.leaderboard-result {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.leaderboard-result > svg {
+  color: var(--green);
+}
+.leaderboard-result > div {
+  flex: 1;
+}
+.leaderboard-result strong {
+  font-size: 18px;
+  font-weight: 500;
+}
+.leaderboard-result p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+}
+.leaderboard-result a {
+  padding: 10px;
+  color: var(--green);
+}
+.match-recording-notice {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 12px 0;
+}
+@media (max-width: 760px) {
+  .leaderboard-section {
+    margin: 28px 0;
+    padding: 20px 16px;
+  }
+  .leaderboard-heading h2 {
+    font-size: 24px;
+  }
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 13px 5px;
+  }
+  .leaderboard-table td {
+    font-size: 11px;
+  }
+  .leaderboard-table td:nth-child(3) {
+    font-size: 15px;
+  }
+  .leaderboard-table tbody th {
+    max-width: 100px;
+    font-size: 12px;
+  }
+  .leaderboard-result {
+    flex-wrap: wrap;
+  }
+  .leaderboard-result strong {
+    font-size: 16px;
+  }
+  .leaderboard-personal {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .header-links {
+    gap: 14px;
+  }
+}
 .site-header {
   height: 94px;
   display: flex;

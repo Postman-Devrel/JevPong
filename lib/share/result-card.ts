@@ -1,4 +1,23 @@
 import { DIFFICULTY_LEVELS, type DifficultyLevel } from "../game/constants";
+import { formatRaceTime } from "../leaderboard/contracts";
+
+export type ResultLeaderboardReason =
+  | "loss"
+  | "practice"
+  | "fallback"
+  | "strategy"
+  | "no_live_decisions"
+  | "insufficient_live_decisions"
+  | "hidden"
+  | null;
+
+export interface ResultLeaderboardData {
+  status: "ranked" | "unranked" | "pending" | "unavailable";
+  rank: number | null;
+  durationMs: number | null;
+  totalPlayers: number;
+  reason: ResultLeaderboardReason;
+}
 
 export interface ResultCardData {
   playerName: string;
@@ -11,6 +30,7 @@ export interface ResultCardData {
   latencyP50Ms: number | null;
   model: string;
   difficulty?: DifficultyLevel;
+  leaderboard?: ResultLeaderboardData;
 }
 
 const CARD_WIDTH = 1200;
@@ -38,7 +58,65 @@ export function resultShareText(data: ResultCardData): string {
   const difficulty = data.difficulty
     ? ` on ${DIFFICULTY_LEVELS[data.difficulty].label}`
     : "";
-  return `${name} ${result}${difficulty}. Can you beat the machine?`;
+  const ranking =
+    data.leaderboard?.status === "ranked" && data.leaderboard.rank
+      ? ` Current rank: #${data.leaderboard.rank}${data.leaderboard.durationMs == null ? "" : ` with a ${formatRaceTime(data.leaderboard.durationMs)} personal best`}.`
+      : "";
+  return `${name} ${result}${difficulty}.${ranking} Can you beat the machine?`;
+}
+
+const UNRANKED_REASONS: Record<
+  Exclude<ResultLeaderboardReason, null>,
+  string
+> = {
+  loss: "BEAT JEV TO RANK",
+  practice: "PRACTICE MATCH",
+  fallback: "FALLBACK PLAY",
+  strategy: "BALANCED STYLE REQUIRED",
+  no_live_decisions: "NO LIVE JEV DECISIONS",
+  insufficient_live_decisions: "LESS THAN 70% LIVE JEV",
+  hidden: "RESULT HIDDEN",
+};
+
+export function resultLeaderboardSummary(data: ResultCardData): {
+  label: string;
+  value: string;
+  detail: string;
+} {
+  const level = data.difficulty
+    ? DIFFICULTY_LEVELS[data.difficulty].label.toUpperCase()
+    : "GLOBAL";
+  const leaderboard = data.leaderboard;
+  if (!leaderboard || leaderboard.status === "unavailable")
+    return {
+      label: `${level} LEADERBOARD`,
+      value: "RANK UNAVAILABLE",
+      detail: "LEADERBOARD NOT CONNECTED",
+    };
+  if (leaderboard.status === "pending")
+    return {
+      label: `${level} LEADERBOARD`,
+      value: "CHECKING RANK…",
+      detail: "RESULT IS STILL SAVING",
+    };
+  if (
+    leaderboard.status === "ranked" &&
+    leaderboard.rank !== null &&
+    leaderboard.durationMs !== null
+  )
+    return {
+      label: `CURRENT ${level} RANK`,
+      value: `#${leaderboard.rank}`,
+      detail: `PERSONAL BEST ${formatRaceTime(leaderboard.durationMs)}  /  ${leaderboard.totalPlayers} ${leaderboard.totalPlayers === 1 ? "PLAYER" : "PLAYERS"}`,
+    };
+  return {
+    label: `${level} LEADERBOARD`,
+    value: "NOT RANKED",
+    detail:
+      leaderboard.reason === null
+        ? "NO QUALIFYING PERSONAL BEST"
+        : UNRANKED_REASONS[leaderboard.reason],
+  };
 }
 
 export function resultFilename(data: ResultCardData): string {
@@ -131,7 +209,7 @@ export async function createResultCardBlob(
   context.fillStyle = "#c4f46e";
   context.font = '500 18px "IBM Plex Mono", monospace';
   context.letterSpacing = "4px";
-  context.fillText("MATCH RECEIPT  /  VERIFIED PLAY", 0, 0);
+  context.fillText("MATCH RECEIPT  /  RECORDED PLAY", 0, 0);
   context.restore();
 
   context.fillStyle = "#c4f46e";
@@ -192,6 +270,23 @@ export async function createResultCardBlob(
   context.fillStyle = "#20251c";
   roundedRect(context, 184, 339, 934, 1, 0);
   context.fill();
+
+  const ranking = resultLeaderboardSummary(data);
+  context.fillStyle = "#171b14";
+  roundedRect(context, 184, 363, 934, 78, 10);
+  context.fill();
+  context.fillStyle = "#8c9585";
+  context.font = '500 14px "IBM Plex Mono", monospace';
+  context.fillText(ranking.label, 207, 389);
+  context.fillStyle =
+    data.leaderboard?.status === "unranked" ? "#ff8a4c" : "#c4f46e";
+  fitText(context, ranking.value, 340, 35, '"Space Grotesk", sans-serif', 600);
+  context.fillText(ranking.value, 207, 426);
+  context.textAlign = "right";
+  context.fillStyle = "#8c9585";
+  context.font = '500 14px "IBM Plex Mono", monospace';
+  context.fillText(ranking.detail, 1095, 411, 520);
+  context.textAlign = "left";
 
   metric(context, "BEST RALLY", `${data.longestRally} HITS`, 184, 180);
   metric(context, "JEV DECISIONS", String(data.decisions), 410, 180);

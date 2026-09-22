@@ -54,10 +54,14 @@ import Modal from "@/components/ui/Modal";
 import ResultShareModal from "@/components/game/ResultShareModal";
 import {
   normalizePlayerName,
+  type ResultLeaderboardData,
   type ResultCardData,
 } from "@/lib/share/result-card";
 import { ArcadeAudio } from "./audio";
 import { CourtRenderer } from "./renderer";
+import Leaderboard, { LeaderboardResult } from "./Leaderboard";
+import { MatchRecorder, type RecordingState } from "@/lib/leaderboard/client";
+import { formatRaceTime } from "@/lib/leaderboard/contracts";
 
 const EMPTY_METRICS: MonitorMetrics = {
   accepted: 0,
@@ -79,6 +83,7 @@ type Runtime = {
   session: SessionTelemetry;
   audio: ArcadeAudio;
   renderer: CourtRenderer;
+  recorder: MatchRecorder;
 };
 
 export default function GameShell() {
@@ -87,6 +92,10 @@ export default function GameShell() {
   const runtimeRef = useRef<Runtime | null>(null);
   const scenarioRef = useRef<MockScenario>("normal");
   const soundEnabledRef = useRef(true);
+  const playerNameRef = useRef("");
+  const [recording, setRecording] = useState<RecordingState>({
+    status: "idle",
+  });
   const [view, setView] = useState<GameState | null>(null);
   const [config, setConfig] = useState<AgentPublicConfig | null>(null);
   const [latest, setLatest] = useState<DecisionEvent | null>(null);
@@ -95,6 +104,9 @@ export default function GameShell() {
   const [pending, setPending] = useState(false);
   const [sound, setSound] = useState(true);
   const [playerName, setPlayerName] = useState("");
+  useEffect(() => {
+    playerNameRef.current = playerName;
+  }, [playerName]);
   const [strategy, setStrategy] = useState<Strategy>("balanced");
   const [scenario, setScenario] = useState<MockScenario>("normal");
   const [modal, setModal] = useState<
@@ -113,6 +125,44 @@ export default function GameShell() {
   const active = phase === "playing" || phase === "countdown";
   const hasPlayerName = playerName.trim().length > 0;
   const displayPlayerName = normalizePlayerName(playerName);
+  const leaderboardCard = useMemo<ResultLeaderboardData>(() => {
+    const personalBest = recording.result?.board.personalBest;
+    if (personalBest)
+      return {
+        status: "ranked",
+        rank: personalBest.rank,
+        durationMs: personalBest.durationMs,
+        totalPlayers: recording.result?.board.totalPlayers ?? 0,
+        reason: null,
+      };
+    if (recording.status === "saved")
+      return {
+        status: "unranked",
+        rank: null,
+        durationMs: null,
+        totalPlayers: recording.result?.board.totalPlayers ?? 0,
+        reason: recording.result?.reason ?? null,
+      };
+    if (
+      recording.status === "registering" ||
+      recording.status === "playing" ||
+      recording.status === "saving"
+    )
+      return {
+        status: "pending",
+        rank: null,
+        durationMs: null,
+        totalPlayers: 0,
+        reason: null,
+      };
+    return {
+      status: "unavailable",
+      rank: null,
+      durationMs: null,
+      totalPlayers: 0,
+      reason: null,
+    };
+  }, [recording]);
   const resultCardData = useMemo<ResultCardData>(
     () => ({
       playerName: displayPlayerName,
@@ -125,12 +175,14 @@ export default function GameShell() {
       latencyP50Ms: metrics.latencyP50Ms,
       model: latest?.decision.model ?? config?.model ?? "Jev",
       difficulty,
+      leaderboard: leaderboardCard,
     }),
     [
       config?.model,
       displayPlayerName,
       difficulty,
       latest?.decision.model,
+      leaderboardCard,
       metrics.accepted,
       metrics.fallbackRate,
       metrics.latencyP50Ms,
@@ -146,10 +198,15 @@ export default function GameShell() {
     const engine = new PongEngine();
     const renderer = new CourtRenderer(canvasRef.current);
     const audio = new ArcadeAudio();
+    const recorder = new MatchRecorder({
+      playerName: () => playerNameRef.current,
+      onChange: setRecording,
+    });
     const runtime: Runtime = {
       engine,
       renderer,
       audio,
+      recorder,
       controller: null,
       session: new SessionTelemetry({ appVersion: "1.0.0" }),
     };
@@ -168,6 +225,10 @@ export default function GameShell() {
       const dt = Math.min((now - previous) / 1000, 0.1);
       previous = now;
       engine.update(dt);
+      recorder.observe(
+        engine.state,
+        runtime.controller?.strategy ?? "balanced",
+      );
       runtime.controller?.update(now);
       const events = engine.consumeEvents();
       for (const event of events) {
@@ -265,6 +326,7 @@ export default function GameShell() {
           rawResponse,
           applied,
         );
+        recorder.decision(observed);
         setLatest(event);
         setHistory(runtime.session.getHistory());
       },
@@ -300,6 +362,7 @@ export default function GameShell() {
       cancelAnimationFrame(frame);
       resizeObserver.disconnect();
       runtime.controller?.dispose();
+      recorder.dispose();
       audio.dispose();
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("offline", offline);
@@ -483,6 +546,10 @@ export default function GameShell() {
           A SMALL GAME. A NEW KIND OF OPPONENT.
         </span>
         <div className="header-links">
+          <a href="#leaderboard">
+            <Trophy size={16} />
+            <span>Leaderboard</span>
+          </a>
           <button onClick={showHelp} aria-label="How to play">
             <HelpCircle size={16} />
             <span>How to play</span>
@@ -550,6 +617,12 @@ export default function GameShell() {
                 })}
               </div>
               <p id="difficulty-description">{difficultyProfile.description}</p>
+              <p className="leaderboard-notice">
+                Playing logs your nickname and result when the leaderboard is
+                connected. Completed matches with at least 70% live Jev
+                decisions are ranked publicly.{" "}
+                <a href="#leaderboard">Leaderboard rules</a>
+              </p>
             </div>
             <div className="arena-panel panel" ref={courtRef}>
               <div className="panel-heading arena-heading">
@@ -565,6 +638,9 @@ export default function GameShell() {
                           ? "PAUSED"
                           : "MATCH IN PROGRESS"}
                   </span>
+                  <time className="match-timer" aria-label="Match time">
+                    {formatRaceTime((view?.elapsed ?? 0) * 1000)}
+                  </time>
                 </div>
                 <div className="arena-actions">
                   <button
@@ -772,10 +848,24 @@ export default function GameShell() {
                         : `${hasPlayerName ? displayPlayerName : "Jev"}${hasPlayerName ? ", Jev takes this one." : " takes this one."}`}
                     </h2>
                     <p>
-                      {difficultyProfile.label}
+                      {difficultyProfile.label} ·{" "}
+                      {formatRaceTime((view?.elapsed ?? 0) * 1000)}
                       <br />
-                      Best rally: {view?.longestRally ?? 0} hits ·{" "}
-                      {metrics.accepted} decisions this session
+                      {leaderboardCard.status === "ranked" ? (
+                        <>
+                          Current rank #{leaderboardCard.rank} · Personal best{" "}
+                          {leaderboardCard.durationMs === null
+                            ? ""
+                            : formatRaceTime(leaderboardCard.durationMs)}
+                        </>
+                      ) : leaderboardCard.status === "pending" ? (
+                        "Saving leaderboard result…"
+                      ) : (
+                        <>
+                          Best rally: {view?.longestRally ?? 0} hits ·{" "}
+                          {metrics.accepted} decisions this session
+                        </>
+                      )}
                     </p>
                     <div className="finish-actions">
                       <button
@@ -883,6 +973,17 @@ export default function GameShell() {
                 <b>{String(view?.longestRally ?? 0).padStart(2, "0")}</b>
               </span>
             </div>
+            {phase !== "finished" && recording.status === "unavailable" && (
+              <p className="match-recording-notice" role="status">
+                {recording.message}
+              </p>
+            )}
+            {phase === "finished" && (
+              <LeaderboardResult
+                recording={recording}
+                onRetry={() => runtimeRef.current?.recorder.retry()}
+              />
+            )}
           </section>
 
           <DecisionMonitor
@@ -915,6 +1016,8 @@ export default function GameShell() {
           />
         </div>
 
+        <Leaderboard latestResult={recording.result} />
+
         <section className="session-section" aria-label="Decision history">
           <div className="session-heading">
             <div>
@@ -932,6 +1035,11 @@ export default function GameShell() {
                     setStrategy(value);
                     if (runtimeRef.current?.controller)
                       runtimeRef.current.controller.strategy = value;
+                    if (runtimeRef.current)
+                      runtimeRef.current.recorder.observe(
+                        runtimeRef.current.engine.state,
+                        value,
+                      );
                   }}
                 >
                   <option value="balanced">Balanced</option>
