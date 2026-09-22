@@ -159,7 +159,7 @@ test("starts immediately, shows real telemetry updates, and responds to pointer 
   ).toContainText("$0.000000");
 });
 
-test("defaults to hard, allows easy and medium, and confirms changes during a match", async ({
+test("defaults to easy and confirms difficulty changes during a match", async ({
   page,
 }) => {
   const { states } = await setup(page);
@@ -175,7 +175,8 @@ test("defaults to hard, allows easy and medium, and confirms changes during a ma
     name: "Hard",
     exact: true,
   });
-  await expect(hard).toHaveAttribute("aria-pressed", "true");
+  await expect(easy).toHaveAttribute("aria-pressed", "true");
+  await expect(hard).toHaveAttribute("aria-pressed", "false");
   await medium.click();
   await expect(medium).toHaveAttribute("aria-pressed", "true");
   await easy.click();
@@ -349,7 +350,7 @@ test("inspector and downloaded session redact secrets and retain useful decision
       width: 960,
       height: 600,
       winningScore: 7,
-      difficulty: 3,
+      difficulty: 1,
     },
     modelConfiguration: { provider: "mock" },
     metrics: { inputTokens: 0, estimatedCostUsd: 0 },
@@ -392,7 +393,7 @@ test("finishes a first-to-seven match and restarts without reloading", async ({
         personalBest: true,
         durationMs: finishedBody!.durationMs,
         board: {
-          difficulty: 3,
+          difficulty: 1,
           entries: [],
           totalPlayers: 84,
           personalBest: {

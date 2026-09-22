@@ -31,7 +31,7 @@ export const ACTION_POLICY = {
 } as const;
 
 export type DifficultyLevel = 1 | 2 | 3;
-export const DEFAULT_DIFFICULTY: DifficultyLevel = 3;
+export const DEFAULT_DIFFICULTY: DifficultyLevel = 1;
 
 export interface DifficultyProfile {
   level: DifficultyLevel;

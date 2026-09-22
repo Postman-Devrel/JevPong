@@ -60,7 +60,7 @@ Use filter views to inspect data. Do not rename/reorder headers, manually change
 
 ## HTTP API
 
-- `GET /api/leaderboard?difficulty=1|2|3`: top 20 plus the requesting browser's personal best, even when outside the top 20. Default difficulty is Hard (`3`).
+- `GET /api/leaderboard?difficulty=1|2|3`: top 20 plus the requesting browser's personal best, even when outside the top 20. Default difficulty is Easy (`1`).
 - `POST /api/leaderboard/start`: `{clientMatchId, playerName, difficulty, strategy}`. Logs the start and returns a signed ticket, setting the private browser identity cookie if needed.
 - `POST /api/leaderboard/finish`: `{ticket, durationMs, humanScore, aiScore, liveDecisions, fallbackDecisions, mockDecisions, strategyChanged}`. Saves once and returns that run's rank plus the refreshed board. Repeating the same result is safe; conflicting replacements are rejected.
 

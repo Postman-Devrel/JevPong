@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { getServerConfig } from "../agent/providers/config";
-import { GAME } from "../game/constants";
+import { DEFAULT_DIFFICULTY, GAME } from "../game/constants";
 import {
   boardSchema,
   finishMatchSchema,
@@ -252,7 +252,10 @@ export function createLeaderboardHandlers(options: Options = {}) {
     GET: guard(async (request) => {
       const { secret } = configuration(env);
       const difficulty = levelSchema.parse(
-        Number(new URL(request.url).searchParams.get("difficulty") ?? 3),
+        Number(
+          new URL(request.url).searchParams.get("difficulty") ??
+            DEFAULT_DIFFICULTY,
+        ),
       );
       limit(request, "board");
       const playerId =

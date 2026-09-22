@@ -345,9 +345,9 @@ describe("difficulty levels", () => {
     expect(widths[2]).toBeGreaterThan(widths[1]);
   });
 
-  it("defaults to level 3 and keeps the selected level when restarting", () => {
+  it("defaults to level 1 and keeps the selected level when restarting", () => {
     const engine = new PongEngine();
-    expect(engine.state.difficulty).toBe(3);
+    expect(engine.state.difficulty).toBe(1);
     engine.setDifficulty(2);
     expect(engine.state.difficulty).toBe(2);
     expect(engine.state.phase).toBe("ready");

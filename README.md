@@ -83,7 +83,7 @@ Pricing is configured in `lib/agent/cost.ts` and server environment settings. Th
 - Move the left paddle with pointer, touch, arrow keys, or W/S. Touch control works on the player's half of the arena.
 - **Space** pauses or resumes a focused match. **R** restarts; an active match requires confirmation.
 - First to seven wins. Boosts require no extra human input: a charged human boost activates on a strong edge hit.
-- **Hard** is the default. Select **Medium** or **Easy** for a gentler opponent. Difficulty controls physical capabilities and action timing; Balanced, Aggressive, and Defensive remain separate strategy choices.
+- **Easy** is the default. Select **Medium** or **Hard** for a tougher opponent. Difficulty controls physical capabilities and action timing; Balanced, Aggressive, and Defensive remain separate strategy choices.
 - The decision monitor labels every action **JEV**, **MOCK**, or **FALLBACK**. Reduced confidence limits boost and slows movement at easier levels; very low confidence activates a deterministic fallback.
 - Expand the inspector to see a compact game snapshot, the normalized decision, and a redacted provider response. Explanations are templates derived from observable values, never private model reasoning.
 - Export session JSON to save aggregate metrics, score, configuration, and recent decisions. Session totals survive match restarts; a page reload starts a fresh session.
@@ -107,9 +107,9 @@ The authoritative state is local to the browser: this is a single-player product
 
 | Difficulty     | Normal / boost speed        | Shot placement               |
 | -------------- | --------------------------- | ---------------------------- |
-| Easy           | 150 / 240 pixels per second | Legacy contact-based returns |
+| Easy (default) | 150 / 240 pixels per second | Legacy contact-based returns |
 | Medium         | 300 / 480 pixels per second | Model-selected landing zone  |
-| Hard (default) | 450 / 680 pixels per second | Model-selected landing zone  |
+| Hard           | 450 / 680 pixels per second | Model-selected landing zone  |
 
 Harder settings also recover toward center faster and retain a selected movement long enough to bridge ordinary Gateway latency. Actions remain bounded by their difficulty profile's movement lease, stop on reaching the predicted intercept or recovery target, and expire when their round or ball direction becomes stale. The engine never chooses the opposite movement on the model's behalf.
 
