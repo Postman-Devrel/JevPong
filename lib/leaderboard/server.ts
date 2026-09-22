@@ -24,7 +24,9 @@ const ticketSchema = startMatchSchema.omit({ clientMatchId: true }).extend({
   version: z.literal(LEADERBOARD_VERSION),
   provider: z.enum(["jev", "mock"]),
 });
-type Config = { url: string; secret: string };
+type Config =
+  | { kind: "supabase"; url: string; apiKey: string; secret: string }
+  | { kind: "google-sheets"; url: string; secret: string };
 type Environment = Readonly<Record<string, string | undefined>>;
 type Options = {
   env?: Environment;
@@ -42,7 +44,37 @@ class LeaderboardError extends Error {
 
 function configuration(env: Environment): Config {
   const secret = env.LEADERBOARD_SECRET?.trim() ?? "";
+  const supabaseUrl = env.SUPABASE_URL?.trim() ?? "";
+  const supabaseKey = env.SUPABASE_SECRET_KEY?.trim() ?? "";
   const raw = env.GOOGLE_SHEETS_LEADERBOARD_URL?.trim() ?? "";
+  if (supabaseUrl || supabaseKey) {
+    try {
+      const url = new URL(supabaseUrl);
+      const local =
+        url.protocol === "http:" &&
+        (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+      if (
+        (!local && url.protocol !== "https:") ||
+        (url.pathname !== "/" && url.pathname !== "") ||
+        url.search ||
+        url.hash ||
+        url.username ||
+        url.password ||
+        (!local && url.port) ||
+        supabaseKey.length < 20 ||
+        secret.length < 32
+      )
+        throw new Error();
+      return {
+        kind: "supabase",
+        url: url.origin,
+        apiKey: supabaseKey,
+        secret,
+      };
+    } catch {
+      throw new LeaderboardError("leaderboard_not_configured");
+    }
+  }
   if (!secret && !raw) throw new LeaderboardError("leaderboard_not_configured");
   try {
     const url = new URL(raw);
@@ -58,10 +90,55 @@ function configuration(env: Environment): Config {
       secret.length < 32
     )
       throw new Error();
-    return { url: url.href, secret };
+    return { kind: "google-sheets", url: url.href, secret };
   } catch {
     throw new LeaderboardError("leaderboard_not_configured");
   }
+}
+
+function supabasePayload(
+  action: "board" | "start" | "finish",
+  payload: Record<string, unknown>,
+) {
+  if (action === "board") {
+    return {
+      p_difficulty: payload.difficulty,
+      p_player_id: payload.playerId,
+      p_version: payload.version,
+    };
+  }
+  if (action === "start") {
+    return {
+      p_match_id: payload.matchId,
+      p_player_id: payload.playerId,
+      p_player_name: payload.playerName,
+      p_difficulty: payload.difficulty,
+      p_version: payload.version,
+      p_provider: payload.provider,
+      p_strategy: payload.strategy,
+      p_started_at_ms: payload.startedAt,
+    };
+  }
+  return {
+    p_match_id: payload.matchId,
+    p_player_id: payload.playerId,
+    p_player_name: payload.playerName,
+    p_difficulty: payload.difficulty,
+    p_version: payload.version,
+    p_provider: payload.provider,
+    p_strategy: payload.strategy,
+    p_started_at_ms: payload.startedAt,
+    p_completed_at: payload.completedAt,
+    p_duration_ms: payload.durationMs,
+    p_human_score: payload.humanScore,
+    p_ai_score: payload.aiScore,
+    p_live_decisions: payload.liveDecisions,
+    p_fallback_decisions: payload.fallbackDecisions,
+    p_mock_decisions: payload.mockDecisions,
+    p_strategy_changed: payload.strategyChanged,
+    p_ranked: payload.ranked,
+    p_reason: payload.reason,
+  };
 }
 
 function mac(value: string, secret: string): string {
@@ -182,12 +259,35 @@ export function createLeaderboardHandlers(options: Options = {}) {
     times.push(now());
     buckets.set(key, times);
   }
-  async function call(action: string, payload: unknown): Promise<unknown> {
+  async function call(
+    action: "board" | "start" | "finish",
+    payload: Record<string, unknown>,
+  ): Promise<unknown> {
     const config = configuration(env);
-    const response = await fetcher(config.url, {
+    const supabase = config.kind === "supabase";
+    const endpoint = supabase
+      ? `${config.url}/rest/v1/rpc/jev_leaderboard_${action}`
+      : config.url;
+    const response = await fetcher(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret: config.secret, action, payload }),
+      headers: {
+        "Content-Type": "application/json",
+        ...(supabase
+          ? {
+              apikey: config.apiKey,
+              // New sb_secret keys belong in apikey. Legacy service-role JWTs
+              // also require the Authorization header during migration.
+              ...(config.apiKey.startsWith("eyJ")
+                ? { Authorization: `Bearer ${config.apiKey}` }
+                : {}),
+            }
+          : {}),
+      },
+      body: JSON.stringify(
+        supabase
+          ? supabasePayload(action, payload)
+          : { secret: config.secret, action, payload },
+      ),
       redirect: "follow",
       cache: "no-store",
       signal: AbortSignal.timeout(12000),

@@ -14,6 +14,7 @@ import {
   Download,
   Expand,
   Gamepad2,
+  GitFork,
   HelpCircle,
   Keyboard,
   MousePointer2,
@@ -1185,10 +1186,29 @@ export default function GameShell() {
       </main>
       <footer className="site-footer">
         <span>BUILT TO PLAY. MADE TO SHOW WHAT’S POSSIBLE.</span>
-        <a href="https://typesafe.ai" target="_blank" rel="noreferrer">
-          Powered by <b>TypeSafe</b>
-          <ArrowUpRight size={13} />
-        </a>
+        <nav className="footer-links" aria-label="Project links">
+          <a href="https://typesafe.ai" target="_blank" rel="noreferrer">
+            Powered by <b>TypeSafe</b>
+            <ArrowUpRight size={13} />
+          </a>
+          <a
+            href="https://app.fabricgateway.ai?utm_source=jevpong"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Powered by <b>Postman Fabric Gateway</b>
+            <ArrowUpRight size={13} />
+          </a>
+          <a
+            href="https://github.com/Postman-Devrel/JevPong"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <GitFork size={13} />
+            <b>Fork on GitHub</b>
+            <ArrowUpRight size={13} />
+          </a>
+        </nav>
       </footer>
       {toast && (
         <div className="toast" role="status">

@@ -86,7 +86,7 @@ function fixture(provider = "jev") {
   };
 }
 
-describe("Google Sheets leaderboard API and adapter", () => {
+describe("leaderboard API and storage adapters", () => {
   it("is explicitly unavailable without configuration and keeps secrets server-side", async () => {
     const handler = createLeaderboardHandlers({ env: {} });
     const response = await handler.GET(
@@ -371,5 +371,144 @@ describe("Google Sheets leaderboard API and adapter", () => {
     );
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("60");
+  });
+  it("prefers Supabase, sends its secret only as an API key, and maps every RPC", async () => {
+    const calls: Array<{ url: string; init: RequestInit; body: unknown }> = [];
+    const apiKey = `sb_secret_${"s".repeat(40)}`;
+    const board = {
+      difficulty: 3,
+      entries: [],
+      totalPlayers: 0,
+      personalBest: null,
+      updatedAt: "2026-09-22T12:00:00.000Z",
+    };
+    const fetcher = (async (input, init = {}) => {
+      const url = String(input);
+      const body = JSON.parse(String(init.body));
+      calls.push({ url, init, body });
+      if (url.endsWith("/jev_leaderboard_board"))
+        return Response.json({ ok: true, data: board });
+      if (url.endsWith("/jev_leaderboard_start"))
+        return Response.json({
+          ok: true,
+          data: {
+            matchId: body.p_match_id,
+            playerId: body.p_player_id,
+            playerName: body.p_player_name,
+            difficulty: body.p_difficulty,
+            version: body.p_version,
+            provider: body.p_provider,
+            strategy: body.p_strategy,
+            startedAt: body.p_started_at_ms,
+          },
+        });
+      return Response.json({
+        ok: true,
+        data: {
+          matchId: body.p_match_id,
+          ranked: true,
+          reason: null,
+          rank: 1,
+          personalBest: true,
+          durationMs: body.p_duration_ms,
+          board: {
+            ...board,
+            entries: [
+              {
+                matchId: body.p_match_id,
+                playerName: body.p_player_name,
+                rank: 1,
+                durationMs: body.p_duration_ms,
+                humanScore: body.p_human_score,
+                aiScore: body.p_ai_score,
+                completedAt: body.p_completed_at,
+              },
+            ],
+            totalPlayers: 1,
+          },
+        },
+      });
+    }) as typeof fetch;
+    let now = 1800000000000;
+    const handler = createLeaderboardHandlers({
+      env: {
+        SUPABASE_URL: "https://jev-pong.supabase.co",
+        SUPABASE_SECRET_KEY: apiKey,
+        GOOGLE_SHEETS_LEADERBOARD_URL:
+          "https://script.google.com/macros/s/legacy/exec",
+        LEADERBOARD_SECRET: SECRET,
+        JEV_PROVIDER: "jev",
+        TYPESAFE_API_KEY: "fake-upstream-key",
+      },
+      fetcher,
+      now: () => now,
+    });
+    const request = (path: string, body?: unknown, cookie = "") =>
+      new Request(`http://localhost:3000/api/leaderboard${path}`, {
+        method: body ? "POST" : "GET",
+        headers: {
+          "Content-Type": "application/json",
+          cookie,
+          origin: "http://localhost:3000",
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+
+    expect((await handler.GET(request("?difficulty=3"))).status).toBe(200);
+    const started = await handler.START(
+      request("/start", {
+        clientMatchId: "supabase-match",
+        playerName: "Ada",
+        difficulty: 3,
+        strategy: "balanced",
+      }),
+    );
+    expect(started.status).toBe(200);
+    const cookie = started.headers.get("set-cookie")!.split(";")[0];
+    const startData = (await started.json()) as {
+      ticket: string;
+      matchId: string;
+    };
+    now += 90000;
+    const finished = await handler.FINISH(
+      request(
+        "/finish",
+        {
+          ticket: startData.ticket,
+          durationMs: 50000,
+          humanScore: 7,
+          aiScore: 0,
+          liveDecisions: 40,
+          fallbackDecisions: 0,
+          mockDecisions: 0,
+          strategyChanged: false,
+        },
+        cookie,
+      ),
+    );
+    expect(finished.status).toBe(200);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_board",
+      "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_start",
+      "https://jev-pong.supabase.co/rest/v1/rpc/jev_leaderboard_finish",
+    ]);
+    for (const call of calls) {
+      const headers = new Headers(call.init.headers);
+      expect(headers.get("apikey")).toBe(apiKey);
+      expect(headers.get("authorization")).toBeNull();
+      expect(JSON.stringify(call.body)).not.toContain(SECRET);
+    }
+    expect(calls[0].body).toEqual({
+      p_difficulty: 3,
+      p_player_id: "00000000-0000-0000-0000-000000000000",
+      p_version: "jev-pong-1",
+    });
+    expect(calls[2].body).toMatchObject({
+      p_match_id: startData.matchId,
+      p_player_name: "Ada",
+      p_duration_ms: 50000,
+      p_ranked: true,
+      p_reason: null,
+    });
   });
 });

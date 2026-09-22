@@ -2,7 +2,7 @@
 
 ## Public leaderboard
 
-Easy, Medium, and Hard each have a fastest-match leaderboard backed by a private Google Sheet. A completed match ranks when live Fabric/Jev decisions are at least 70% of all recorded decisions. Losses, every strategy, strategy changes, and fallback play are allowed; only each player's fastest qualifying result per level is listed. See [setup, ranking rules, and launch limitations](docs/leaderboard.md). This initial anonymous community board has basic validation, not server-verified anti-cheat.
+Easy, Medium, and Hard each have a fastest-match leaderboard backed by private Supabase Postgres storage. A completed match ranks when live Fabric/Jev decisions are at least 70% of all recorded decisions. Losses, every strategy, strategy changes, and fallback play are allowed; only each player's fastest qualifying result per level is listed. See [Supabase setup, data migration, ranking rules, and launch limitations](docs/leaderboard.md). This initial anonymous community board has basic validation, not server-verified anti-cheat.
 
 One paddle. First to seven. A live window into every agent decision.
 
@@ -75,6 +75,10 @@ An explicitly selected Jev provider with missing or invalid credentials displays
 | `JEV_MOCK_LATENCY_MS`              | `72`         | Simulated provider delay in mock mode                                  |
 | `JEV_MOCK_SEED`                    | `42`         | Deterministic mock behavior seed                                       |
 | `NEXT_PUBLIC_SITE_URL`             | Localhost    | Public site origin used in canonical and social-preview URLs           |
+| `SUPABASE_URL`                     | Empty        | Server-only Supabase project origin for leaderboard storage            |
+| `SUPABASE_SECRET_KEY`              | Empty        | Server-only `sb_secret_...` key; never expose it to the browser        |
+| `LEADERBOARD_SECRET`               | Empty        | Server-only secret for signing anonymous match and identity tickets    |
+| `GOOGLE_SHEETS_LEADERBOARD_URL`    | Empty        | Legacy Apps Script fallback used only when Supabase is not configured  |
 
 Pricing is configured in `lib/agent/cost.ts` and server environment settings. The initial input and output prices follow the [official model pricing](https://docs.typesafe.ai/models), checked September 21, 2026. Cost remains an estimate, including when actual token counts are returned. Missing usage from failed or cancelled upstream requests cannot be reconstructed; exported totals cover responses observed by the browser.
 
@@ -99,7 +103,7 @@ This is a single Next.js App Router application with TypeScript. Game physics an
 - **Server boundary:** validates snapshots with Zod, constructs fixed questions for the official Choice and Noul primitives, calls TypeSafe with a bounded timeout, and normalizes the response. It accepts no arbitrary player-supplied model instructions. Credentials and upstream error bodies never reach the browser.
 - **Browser telemetry:** keeps the most recent 50 decisions and 50 incidents in memory. Cumulative accepted, stale, fallback, and token counts continue for the whole page session. Latency p50/p95 use the last 100 measured round trips; decisions per second uses a rolling five-second window. Mock usage is separate from billable usage. History truncation is explicit in exports.
 
-The authoritative state is local to the browser: this is a single-player product demo, with no multiplayer, accounts, leaderboard, third-party analytics, or persistent player tracking. Opening another tab creates a separate match and telemetry session.
+The authoritative game state is local to the browser: this is a single-player product demo with no multiplayer, accounts, third-party analytics, or cross-site tracking. The leaderboard persists the submitted nickname and result against a signed anonymous browser identity. Opening another tab creates a separate match and telemetry session.
 
 ### Gameplay tuning
 
