@@ -74,6 +74,7 @@ An explicitly selected Jev provider with missing or invalid credentials displays
 | `JEV_OUTPUT_PRICE_PER_MILLION_USD` | `0`          | Configurable estimate per million output tokens                        |
 | `JEV_MOCK_LATENCY_MS`              | `72`         | Simulated provider delay in mock mode                                  |
 | `JEV_MOCK_SEED`                    | `42`         | Deterministic mock behavior seed                                       |
+| `NEXT_PUBLIC_SITE_URL`             | Localhost    | Public site origin used in canonical and social-preview URLs           |
 
 Pricing is configured in `lib/agent/cost.ts` and server environment settings. The initial input and output prices follow the [official model pricing](https://docs.typesafe.ai/models), checked September 21, 2026. Cost remains an estimate, including when actual token counts are returned. Missing usage from failed or cancelled upstream requests cannot be reconstructed; exported totals cover responses observed by the browser.
 

@@ -4,6 +4,49 @@ import type {
   AgentPublicConfig,
 } from "../../lib/agent/contracts";
 
+test("publishes complete social-preview metadata and generated images", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "Jev Pong — Human instinct. Machine intelligence.",
+  );
+  await expect(page.locator('meta[property="og:image"]')).toHaveCount(1);
+  await expect(page.locator('meta[property="og:image:width"]')).toHaveAttribute(
+    "content",
+    "1200",
+  );
+  await expect(
+    page.locator('meta[property="og:image:height"]'),
+  ).toHaveAttribute("content", "630");
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
+    "content",
+    "summary_large_image",
+  );
+  await expect(page.locator('meta[name="twitter:image"]')).toHaveCount(1);
+
+  for (const selector of [
+    'meta[property="og:image"]',
+    'meta[name="twitter:image"]',
+  ]) {
+    const imageUrl = await page.locator(selector).getAttribute("content");
+    expect(imageUrl).not.toBeNull();
+    const parsedImageUrl = new URL(imageUrl!);
+    const response = await page.request.get(
+      `${parsedImageUrl.pathname}${parsedImageUrl.search}`,
+    );
+    expect(response.ok()).toBe(true);
+    expect(response.headers()["content-type"]).toContain("image/png");
+    const body = await response.body();
+    expect(body.subarray(0, 8)).toEqual(
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    expect(body.byteLength).toBeLessThan(5 * 1024 * 1024);
+  }
+});
+
 test("the installed Next route serves real mock decisions to the browser", async ({
   page,
 }) => {

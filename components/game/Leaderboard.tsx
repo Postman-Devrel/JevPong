@@ -148,7 +148,6 @@ export default function Leaderboard({
         <div>
           <span className="eyebrow">THE GLOBAL LEADERBOARD</span>
           <h2 id="leaderboard-title">Who finishes fastest?</h2>
-          <p>70% live Jev required. One personal best per player.</p>
         </div>
         <button
           className="icon-button"
