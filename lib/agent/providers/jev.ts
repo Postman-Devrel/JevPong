@@ -303,6 +303,7 @@ export class JevProvider implements AgentProvider {
         if (
           error.status === 400 ||
           error.status === 404 ||
+          error.status === 421 ||
           error.status === 422
         )
           throw new ProviderError("configuration", undefined, true);

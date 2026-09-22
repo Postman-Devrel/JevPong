@@ -557,6 +557,11 @@ svg {
 .header-links .github-attribution {
   gap: 7px;
 }
+.github-attribution > svg {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+}
 .header-links .header-attribution:hover {
   border-color: var(--green);
   background: color-mix(in srgb, var(--green) 8%, var(--panel));

@@ -257,6 +257,7 @@ describe("official Jev adapter", () => {
   it.each([
     [401, "authentication", true],
     [403, "authentication", true],
+    [421, "configuration", true],
     [422, "configuration", true],
     [429, "rate_limit", false],
     [529, "provider_error", false],

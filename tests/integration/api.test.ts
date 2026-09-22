@@ -163,6 +163,22 @@ describe("decision API service", () => {
     expect(fetcher).toHaveBeenCalledOnce();
   });
 
+  it("does not keep retrying a misdirected Gateway deployment", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("misdirected request", { status: 421 }));
+    const handler = createDecisionHandler({ getConfig: liveConfig, fetcher });
+    const first = await (await handler(request())).json();
+    const second = await (await handler(request())).json();
+    expect(first).toMatchObject({
+      disabled: true,
+      decision: { source: "fallback", fallbackReason: "configuration" },
+    });
+    expect(second.decision.fallbackReason).toBe("configuration");
+    expect(JSON.stringify(first)).not.toContain("misdirected request");
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("honors Retry-After across incoming requests and then recovers", async () => {
     let time = 1_000;
     const fetcher = vi
